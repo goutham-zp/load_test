@@ -1,0 +1,1 @@
+{ "info": { "host": "http://mock-insights-api" }, "paths": { "/v1/insights/spend": { "get": { "summary": "Spend", "description": "/v1/insights/spend" } } } }

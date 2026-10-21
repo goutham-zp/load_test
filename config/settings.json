@@ -1,0 +1,75 @@
+{
+  "gatewayConfigDir": "~/Documents/work/api_gateway",
+  "backendsDir": "~/Documents/work/backends",
+  "discovery": {
+    "maxCompaniesPerUser": 3,
+    "navigationTimeoutMs": 60000,
+    "maxSamplesPerUserPerEndpoint": 5,
+    "maxVariantsPerEndpoint": 30,
+    "searchTerms": [
+      "a",
+      "zzqx-no-match"
+    ],
+    "slowCallMs": 2000
+  },
+  "load": {
+    "stepsRps": [
+      5,
+      10,
+      25,
+      50,
+      100,
+      200,
+      400
+    ],
+    "stepDurationSec": 180,
+    "safetyFactor": 0.8,
+    "requestTimeoutSec": 60,
+    "maxVUsPerService": 500
+  },
+  "break": {
+    "errorRate": 0.05,
+    "p95Ms": 10000,
+    "minRequests": 20
+  },
+  "emergency": {
+    "errorRate": 0.25
+  },
+  "browser": {
+    "workers": 5,
+    "readyQuietMs": 500,
+    "readyTimeoutMs": 60000,
+    "runInteractions": true
+  },
+  "tokenRefreshMarginSec": 300,
+  "blockedThirdPartyHosts": [
+    "heapanalytics.com",
+    "heap.io",
+    "chameleon.io",
+    "sentry.io",
+    "google-analytics.com",
+    "googletagmanager.com",
+    "doubleclick.net",
+    "salesforce.com",
+    "hotjar.com",
+    "clarity.ms",
+    "segment.io",
+    "segment.com",
+    "intercom.io",
+    "fullstory.com",
+    "ipdata.co",
+    "maps.googleapis.com",
+    "trychameleon.com",
+    "contentsquare.net",
+    "hubspot.com",
+    "hubapi.com",
+    "hs-scripts.com",
+    "hs-analytics.net",
+    "hsforms.com",
+    "hs-banner.com",
+    "usemessages.com",
+    "googleadservices.com",
+    "analytics.google.com",
+    "www.google.com"
+  ]
+}

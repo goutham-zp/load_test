@@ -1,0 +1,11 @@
+{
+  "_comment": "Local fake DXP for trying the tool: npm run mock (another terminal), then --env mock. Users: any email, password pw.",
+  "name": "mock",
+  "kind": "other",
+  "webBaseUrl": "http://localhost:4100",
+  "lang": "en",
+  "gatewayBaseUrls": ["http://localhost:4102"],
+  "auth0Domain": "http://localhost:4101",
+  "loginPath": "/en/retailer",
+  "gatewayConfigDir": "mock/gateway"
+}

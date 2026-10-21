@@ -1,0 +1,9 @@
+{
+  "info": { "host": "http://mock-invoice-api" },
+  "paths": {
+    "/api/v3/invoices": { "get": { "summary": "ListInvoices", "description": "/v3/invoices" } },
+    "/api/v3/invoices/average-spend": { "get": { "summary": "AverageSpend", "description": "/v3/invoices/average-spend" } },
+    "/api/v3/invoice/invoice-details/header": { "get": { "summary": "InvoiceHeader", "description": "/v3/invoice/invoice-details/header" } },
+    "/api/v3/invoice/invoice-details/line-items": { "get": { "summary": "InvoiceLines", "description": "/v3/invoice/invoice-details/line-items" } }
+  }
+}

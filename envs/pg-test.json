@@ -1,0 +1,17 @@
+{
+  "_comment": "Copy to envs/<name>.json (name must match the file name) and fill the URLs. gatewayBaseUrls: every URL prefix the frontend calls APIs on (API gateway, Kong, DXP platform server). Values are in the deployment's variable group (API_BASE_URL, KRAKEND_*, NEXT_PUBLIC_DXP_PLATFORM_SERVER, AUTH0_DOMAIN).",
+  "name": "pg-test",
+  "kind": "postgres",
+  "webBaseUrl": "https://pg-dxp.app.fintech.com",
+  "lang": "en",
+  "gatewayBaseUrls": [
+    "https://pg-apis.app.fintech.com",
+    "https://pg-dxp.app.fintech.com/api/"
+  ],
+  "auth0Domain": "https://fintech-prod.us.auth0.com",
+  "services": {
+    "fms/invoice-apis": {
+      "pods": 1
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "_comment": "Scripted interactions per page id (see pages.json). \"default\" = the defaults below; an object overrides/extends them; pages not listed (or \"none\") are measured on default view only. tabs: \"auto\" clicks every [role=tab]. grid: sorts the first N sortable MUI columns and presses 'Go to next page' N times. search: terms typed into the page search box (selector optional). steps: explicit {action: click|fill|select, selector, value?, label} for bespoke pages.",
+  "defaults": {
+    "tabs": "auto",
+    "grid": { "nextPages": 2, "sortColumns": 3 },
+    "search": { "terms": ["a"] }
+  },
+  "pages": {
+    "invoices/my-invoices": "default",
+    "invoices/manage-invoices": "default",
+    "invoices/payment-activity": "default",
+    "invoices/payment-activity/[transactionId]": "default",
+    "invoices/eft-report": "default",
+    "insights/spend-overview": "default",
+    "insights/vendor-analysis": "default",
+    "insights/product-analysis": "default",
+    "insights/reporting": "default",
+    "insights/reporting/cost-variance": "default",
+    "insights/reporting/split-case": "default",
+    "vendors/manage-vendors": "default",
+    "vendors/manage-vendors/[distributorFtsId]": "default",
+    "locations/my-locations": "default",
+    "locations/my-locations/[ftsStoreId]": "default",
+    "my-products": "default",
+    "my-products/catalog-exceptions": "default",
+    "product-catalog": "default",
+    "tasks/my-tasks": "default",
+    "document-center": "default",
+    "settings/audit-logs": "default",
+    "settings/users": "default"
+  }
+}

@@ -1,0 +1,1 @@
+{ "info": { "host": "http://mock-invoice-api" }, "paths": { "/api/v5/reports/invoices": { "post": { "summary": "InvoiceReport", "description": "/v5/reports/invoices" } } } }

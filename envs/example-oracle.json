@@ -1,0 +1,9 @@
+{
+  "_comment": "Copy to envs/<name>.json (name must match the file name) and fill the URLs.",
+  "name": "example-oracle",
+  "kind": "oracle",
+  "webBaseUrl": "https://qa-dxp.app.fintech.com",
+  "lang": "en",
+  "gatewayBaseUrls": ["https://FILL_ME-apis.app.fintech.com", "https://FILL_ME-kong.app.fintech.com"],
+  "auth0Domain": "https://FILL_ME.us.auth0.com"
+}

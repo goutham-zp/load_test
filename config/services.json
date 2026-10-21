@@ -1,0 +1,321 @@
+{
+  "_comment": "Rate limits per gateway service (key = <prefix>/<service dir> in ~/Documents/work/api_gateway). Values read from each backend's appsettings.json on 2026-10-20; deployed config may differ. key: token = per Authorization header (scales with users), ip = per client IP / X-ClientId (does not scale with users). pods: replicas per environment if known (override per env in envs/<name>.json 'services').",
+  "defaultUnknown": {
+    "pods": 1,
+    "key": "token",
+    "limits": [
+      {
+        "perSeconds": 1,
+        "limit": 10
+      }
+    ],
+    "limitsVerified": false
+  },
+  "services": {
+    "data-platform/data-audit-apis": {
+      "repo": "data-audit-api",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 50
+        }
+      ],
+      "limitsVerified": true
+    },
+    "data-platform/data-insights-node-apis": {
+      "repo": "data-insights-api-node",
+      "key": "token",
+      "limits": [],
+      "limitsVerified": true
+    },
+    "data-platform/data-productcatalog-apis": {
+      "repo": "data-productcatalog-api",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 50
+        }
+      ],
+      "limitsVerified": true
+    },
+    "data-platform/data-relationships-apis": {
+      "repo": "data-relationship-api",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 50
+        }
+      ],
+      "limitsVerified": true
+    },
+    "data-platform/vp-invoices-apis": {
+      "repo": "VP_Invoices_API",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 50
+        }
+      ],
+      "limitsVerified": true
+    },
+    "data-platform/vp-productcatalogs": {
+      "repo": "VP_Product_Catalog_API",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 50
+        }
+      ],
+      "limitsVerified": true
+    },
+    "fintech-platforms/vp-users-apis": {
+      "repo": "VP_Users_API",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 50
+        }
+      ],
+      "limitsVerified": true
+    },
+    "fms/ap-apis": {
+      "repo": "AP_Api",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 1000
+        }
+      ],
+      "limitsVerified": true
+    },
+    "fms/ap-payments-apis": {
+      "repo": "AP_Payments_API",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 500
+        }
+      ],
+      "limitsVerified": true
+    },
+    "fms/ap-vendors-apis": {
+      "repo": "AP_Vendors_API",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 10
+        }
+      ],
+      "limitsVerified": true
+    },
+    "fms/bank-payment-processing-apis": {
+      "repo": "BankPaymentProcessingAPI",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 10
+        }
+      ],
+      "limitsVerified": true
+    },
+    "fms/banking-apis": {
+      "repo": "Banking_API",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 10
+        }
+      ],
+      "limitsVerified": true
+    },
+    "fms/billing-apis": {
+      "repo": "Billing_API",
+      "key": "ip",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 5
+        },
+        {
+          "perSeconds": 900,
+          "limit": 100
+        },
+        {
+          "perSeconds": 43200,
+          "limit": 1000
+        },
+        {
+          "perSeconds": 604800,
+          "limit": 10000
+        }
+      ],
+      "limitsVerified": true
+    },
+    "fms/company-apis": {
+      "repo": "Company_API",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 10
+        }
+      ],
+      "limitsVerified": true
+    },
+    "fms/contacts-apis": {
+      "repo": "Contacts_API",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 30
+        }
+      ],
+      "limitsVerified": true
+    },
+    "fms/distributors-search-apis": {
+      "repo": "Distributor_Search_API",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 100
+        }
+      ],
+      "limitsVerified": true
+    },
+    "fms/enrollment-apis": {
+      "repo": "Enrollment_API",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 10
+        }
+      ],
+      "limitsVerified": true
+    },
+    "fms/fast2-reports-apis": {
+      "repo": "Fast2.Reports.Api",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 10
+        }
+      ],
+      "limitsVerified": true
+    },
+    "fms/fms-apis": {
+      "repo": "FMS_API",
+      "key": "token",
+      "limits": [],
+      "limitsVerified": true
+    },
+    "fms/invoice-apis": {
+      "repo": "Invoice_API",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 50
+        }
+      ],
+      "limitsVerified": true
+    },
+    "fms/relationship-apis": {
+      "repo": "Relationship_API",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 15
+        }
+      ],
+      "limitsVerified": true
+    },
+    "fms/retailer-product-catalog-apis": {
+      "repo": "Retailer_Product_Catalog_API",
+      "key": "ip",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 30
+        }
+      ],
+      "limitsVerified": true
+    },
+    "fms/segmentation-apis": {
+      "repo": "Segmentation_API",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 10
+        }
+      ],
+      "limitsVerified": true
+    },
+    "fms/staged-invoice-apis": {
+      "repo": "StagedInvoiceApi",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 100
+        }
+      ],
+      "limitsVerified": true
+    },
+    "fms/stores-apis": {
+      "repo": "Stores_API",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 15
+        }
+      ],
+      "limitsVerified": true
+    },
+    "fms/task-apis": {
+      "repo": "Tasks_API",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 800
+        }
+      ],
+      "limitsVerified": true
+    },
+    "fms/user-apis": {
+      "repo": "Users_API",
+      "key": "token",
+      "limits": [
+        {
+          "perSeconds": 1,
+          "limit": 1000
+        }
+      ],
+      "limitsVerified": true
+    },
+    "unknown:api": {
+      "repo": "DXP_Platform_Server",
+      "key": "token",
+      "limits": [],
+      "limitsVerified": true
+    }
+  }
+}

@@ -1,0 +1,1 @@
+{ "info": { "host": "http://mock-users-api" }, "paths": { "/api/v2.1/users/data": { "get": { "summary": "GetUserData", "description": "/v2.1/users/data" } } } }
