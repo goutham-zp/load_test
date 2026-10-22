@@ -3,13 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { chromium } from "playwright";
-import { ensureSessions, saveSessions, loadSessions } from "./browser/session.ts";
-import { loadEnv, loadSettings, loadUsers, readJson, writeJson } from "./config/load.ts";
+import { ensureSessions, loadSessions, saveSessions, sessionsOf } from "./browser/session.ts";
+import { loadApp, loadEnv, loadSettings, loadUsers, readJson, writeJson } from "./config/load.ts";
 import { prodLikeHosts } from "./config/safety.ts";
 import type { EnvConfig } from "./config/types.ts";
 import { discover } from "./discover/discover.ts";
-import { createRouteMatcher, loadGatewayRoutes } from "./gateway/routes.ts";
-import { dirs, expandHome, ROOT } from "./paths.ts";
+import { envMatcher } from "./gateway/routes.ts";
+import { envGuard } from "./guard/readonly.ts";
+import { dirs, ROOT } from "./paths.ts";
 import { computeComparison, renderComparison } from "./report/compare.ts";
 import { renderRunReport } from "./report/runReport.ts";
 import { renderDiscoveryReport } from "./report/discoveryReport.ts";
@@ -127,13 +128,15 @@ async function main(): Promise<void> {
 
     case "login": {
       const env = await needEnv();
-      const users = loadUsers();
+      const users = loadUsers(env);
+      const app = loadApp(env);
       const sessions = loadSessions(env.name);
-      for (const u of users) delete sessions[u.key];
+      for (const u of users) for (const sess of sessionsOf(sessions, u.key)) delete sessions[sess.key];
       saveSessions(env.name, sessions);
       const browser = await chromium.launch({ headless: !values.headed });
       try {
-        await ensureSessions(browser, env, users, 0, log);
+        const maxCompanies = values["max-companies"] ? Number(values["max-companies"]) : loadSettings().discovery.maxCompaniesPerUser;
+        await ensureSessions(browser, env, app, envGuard(env, app), users, 0, log, { maxCompanies });
       } finally {
         await browser.close();
       }
@@ -162,6 +165,10 @@ async function main(): Promise<void> {
       const unmatched = withSamples.filter((e) => !e.matchedRoute);
       if (unmatched.length) log(`  endpoints not in gateway config: ${unmatched.length} (grouped as unknown:*)`);
       if (catalog.failures.length) log(`  non-2xx responses seen: ${catalog.failures.map((f) => `${f.key} ${f.status}×${f.count}`).slice(0, 10).join("; ")}`);
+      for (const h of catalog.untrackedHosts ?? []) {
+        log(`  API calls to a host not in gatewayBaseUrls (not recorded): ${h.origin}  ${h.count}× e.g. ${h.example}`);
+      }
+      if (catalog.untrackedHosts?.length) log(`  Add the API hosts to gatewayBaseUrls in envs/${catalog.env}.json (and hostServices for direct ones), then re-run discover.`);
       if (catalog.blocked.length) {
         log(`  writes blocked by the read-only guard: ${catalog.blocked.length}. If any are really reads (search/report POSTs),`);
         log(`  copy their suggestedAllowlistEntry into config/read-allowlist.json with "reviewed": true, then re-run discover:`);
@@ -243,7 +250,12 @@ async function main(): Promise<void> {
       if (!method || !p) throw new Error("Usage: routes <METHOD> <path>");
       const settings = loadSettings();
       const env = values.env ? loadEnv(values.env) : undefined;
-      const matcher = createRouteMatcher(loadGatewayRoutes(expandHome(env?.gatewayConfigDir ?? settings.gatewayConfigDir)));
+      const matcher = envMatcher(env ?? {}, settings.gatewayConfigDir);
+      const direct = p.startsWith("http") ? matcher.hostService(p) : undefined;
+      if (direct) {
+        log(`${direct}  (direct host, from hostServices in envs/${env!.name}.json)`);
+        return;
+      }
       const r = matcher.match(method, p.startsWith("http") ? new URL(p).pathname : p);
       log(r ? `${r.service}  ${r.method} ${r.gatewayPath} -> ${r.host}${r.servicePath}` : "No matching gateway route.");
       return;

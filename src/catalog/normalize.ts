@@ -36,14 +36,6 @@ export function endpointKey(method: string, pathTemplate: string): string {
   return `${method.toUpperCase()} ${pathTemplate}`;
 }
 
-/** Strips the web origin, lang and company id from a page URL: /en/retailer/123/invoices -> invoices */
-export function pagePathFromUrl(url: string, lang: string): { companyId?: string; rest: string } {
-  const u = new URL(url);
-  const m = u.pathname.match(new RegExp(`^/${lang}/retailer/(\\d+)(?:/(.*))?$`));
-  if (!m) return { rest: u.pathname };
-  return { companyId: m[1], rest: (m[2] ?? "").replace(/\/$/, "") };
-}
-
 /** Builds a regex for a page config path such as "invoices/payment-activity/{transactionId}". */
 export function pagePathRegex(pagePath: string): RegExp {
   const pattern = pagePath

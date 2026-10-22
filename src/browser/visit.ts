@@ -1,5 +1,5 @@
 import type { Page } from "playwright";
-import type { PageInteractions } from "../config/types.ts";
+import type { AppSelectors, PageInteractions } from "../config/types.ts";
 import { runInteractions } from "./interactions.ts";
 import { readLcp, waitForReady, type ReadyResult } from "./ready.ts";
 import type { RequestTracker, TrackedCall } from "./tracker.ts";
@@ -21,6 +21,9 @@ export interface VisitStep {
 export interface VisitOptions {
   quietMs: number;
   timeoutMs: number;
+  /** The app's loading indicators (busySelector(app)). */
+  busySelector: string;
+  selectors: AppSelectors;
   log: (msg: string) => void;
 }
 
@@ -44,7 +47,7 @@ export async function measureStep(
   // A failed action (element missing, navigation error) changed nothing worth waiting for.
   const ready: ReadyResult = error
     ? { readyMs: Date.now() - startedAt, timedOut: false }
-    : await waitForReady(page, tracker, startedAt, { quietMs: opts.quietMs, timeoutMs: opts.timeoutMs });
+    : await waitForReady(page, tracker, startedAt, { quietMs: opts.quietMs, timeoutMs: opts.timeoutMs, busySelector: opts.busySelector });
   // Give late finishers a moment to be logged, then collect this step's calls.
   await page.waitForTimeout(50).catch(() => {});
   return {
@@ -87,7 +90,8 @@ export async function visitPage(
         if (step.timedOut) opts.log(`${pageId}: "${label}" never became ready; skipping the remaining interactions`);
         return !step.timedOut;
       },
-      opts.log
+      opts.log,
+      opts.selectors
     );
   }
   return steps;

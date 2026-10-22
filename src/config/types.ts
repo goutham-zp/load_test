@@ -3,10 +3,12 @@ export type EnvKind = "oracle" | "postgres" | "other";
 export interface EnvConfig {
   name: string;
   kind: EnvKind;
-  /** Origin of the Next.js web app, e.g. https://test-opm-dxp.app.fintech.com */
+  /** Which web app this env serves: a folder under config/apps/ (default "retailer", the DXP.Web retailer portal). */
+  app?: string;
+  /** Origin of the web app, e.g. https://test-opm-dxp.app.fintech.com */
   webBaseUrl: string;
   lang: string;
-  /** Path the login flow starts from (defaults to /<lang>/retailer). */
+  /** Path the login flow starts from (defaults to the app's loginPath). */
   loginPath?: string;
   /** URL prefixes whose requests are API calls to record and load (gateway origins, DXP platform server, ...). */
   gatewayBaseUrls: string[];
@@ -16,6 +18,82 @@ export interface EnvConfig {
   gatewayConfigDir?: string;
   /** Per-env overrides merged over config/services.json entries (e.g. pod counts). */
   services?: Record<string, Partial<ServiceConfig>>;
+  /**
+   * Service names for API hosts the app calls directly, not through a gateway route: URL prefix -> service name
+   * (a services.json key). Unmapped calls on such hosts fall back to "unknown:<first path segment>".
+   */
+  hostServices?: Record<string, string>;
+  /** Company-token apps (FMS_UI): base URL of the auth API that swaps the Auth0 token for a company token. */
+  authApiBaseUrl?: string;
+  /** Company-token apps (FMS_UI): base URL of the users API that lists the user's companies. */
+  usersApiBaseUrl?: string;
+  /** .env prefix of this env's users (default "LT_USER_", read as <prefix><n>_EMAIL / _PASSWORD), e.g. "LT_FMS_USER_". */
+  userPrefix?: string;
+}
+
+/** Selectors the interactions use to find tabs, sortable grid headers, the next-page button, search and rows. */
+export interface AppSelectors {
+  tab: string;
+  sortableHeader: string;
+  nextPage: string;
+  searchBox: string;
+  /** Tried in order to click into the first row of a list page. */
+  firstRow: string[];
+}
+
+/** DXP.Web: one Auth0 token per user; companies come from the app's /users/data call. */
+export interface UsersDataLogin {
+  kind: "users-data";
+  /** Path of the companies call on a gateway base URL. */
+  usersDataPath: string;
+  /** Regex (on the URL pathname, {lang} substituted) of the page a single-company user lands on; group 1 = company. */
+  companyRoute: string;
+}
+
+/** FMS_UI: Auth0 login, then one API token per company from the auth API's token exchange. */
+export interface CompanyExchangeLogin {
+  kind: "company-exchange";
+  /** localStorage key of the Auth0 token the app keeps. */
+  auth0TokenKey: string;
+  /** Path (on usersApiBaseUrl) listing the companies the Auth0 user can open. */
+  companiesPath: string;
+  /** Path (on authApiBaseUrl) that swaps { token, wwwLogin } for a company token. */
+  exchangePath: string;
+  /** Response headers carrying the company access and refresh tokens. */
+  accessTokenHeader: string;
+  refreshTokenHeader: string;
+  /** localStorage key for the refresh token. */
+  refreshTokenKey: string;
+  /** Extra localStorage values the app sets after a company is chosen. */
+  extraStorage?: Record<string, string>;
+  /** JWT claim of the company token naming the company type (matched against pages' companyTypes). */
+  companyTypeClaim?: string;
+  /**
+   * The app's company picker button. When the exchange URL is unknown (no authApiBaseUrl, the app didn't call it), the
+   * first one is clicked so the app makes the exchange call itself and the URL can be read from it.
+   */
+  pickerSelector?: string;
+}
+
+/** How the tool drives one web app: config/apps/<name>/app.json, next to its pages.json and interactions.json. */
+export interface AppProfile {
+  name: string;
+  /** Page URL template: {web}, {lang}, {company}, {path}. */
+  pageUrl: string;
+  /** Regex on a URL pathname with a named group "path" (and "company" when the URL carries it); {lang} substituted. */
+  pagePattern: string;
+  /** Where login starts ({lang} substituted). */
+  loginPath: string;
+  /** localStorage key of the token the app sends to its APIs. */
+  tokenKey: string;
+  /** "user": one API token per user. "company": one per user and company (the token selects the company). */
+  tokenScope: "user" | "company";
+  login: UsersDataLogin | CompanyExchangeLogin;
+  /** Loading indicators: a page is busy while any is visible (in any frame). */
+  busySelectors: string[];
+  selectors: AppSelectors;
+  /** Non-GET calls the app makes to log in or refresh its token: let through the guard, never recorded or replayed. */
+  authCalls?: { method: string; path: string }[];
 }
 
 export type RateLimitKey = "token" | "ip" | "shared";
@@ -79,8 +157,10 @@ export interface Settings {
 
 export interface PageConfig {
   id: string;
-  /** Path under /<lang>/retailer/<companyId>/, may contain {placeholders} for detail pages. */
+  /** The app's page path ({path} in its pageUrl), may contain {placeholders} for detail pages. */
   path: string;
+  /** Only visit for these company types (company-token apps; from the token's companyTypeClaim). */
+  companyTypes?: string[];
   /** Detail pages are reached by clicking the first row of this list page. */
   detailFrom?: {
     page: string;

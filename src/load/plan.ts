@@ -1,7 +1,8 @@
 import { applyVariant } from "../catalog/params.ts";
 import type { Catalog, CatalogEndpoint, Sample } from "../catalog/types.ts";
+import { tokenKeyFor } from "../config/app.ts";
 import type { ResolvedServices } from "../config/load.ts";
-import type { RateRule, ServiceConfig } from "../config/types.ts";
+import type { AppProfile, RateRule, ServiceConfig } from "../config/types.ts";
 import { isReplayable, type CompiledGuard } from "../guard/readonly.ts";
 
 /** Lowest sustained rate (req/s) allowed across all of a service's rules; Infinity when unlimited. */
@@ -10,11 +11,11 @@ export function sustainedRate(rules: RateRule[]): number {
   return Math.min(...rules.map((r) => r.limit / r.perSeconds));
 }
 
-/** Highest rate we let ourselves send to a service: limit x (users when keyed per token) x pods x safety. */
-export function serviceCap(svc: Pick<ServiceConfig, "limits" | "key" | "pods">, usersWithSamples: number, safety: number): number {
+/** Highest rate we let ourselves send to a service: limit x (tokens when keyed per token) x pods x safety. */
+export function serviceCap(svc: Pick<ServiceConfig, "limits" | "key" | "pods">, tokensWithSamples: number, safety: number): number {
   const base = sustainedRate(svc.limits);
   if (!Number.isFinite(base)) return Infinity;
-  const multiplier = svc.key === "token" ? Math.max(1, usersWithSamples) : 1;
+  const multiplier = svc.key === "token" ? Math.max(1, tokensWithSamples) : 1;
   return base * multiplier * Math.max(1, svc.pods) * safety;
 }
 
@@ -22,6 +23,8 @@ export interface PlannedRequest {
   tpl: string;
   variant: string;
   user: string;
+  /** Key of the API token to send (k6-tokens.json): the user, or user|company for company-token apps. */
+  token: string;
   method: string;
   url: string;
   body?: string;
@@ -34,6 +37,8 @@ export interface ServicePlan {
   name: string;
   endpoints: string[];
   users: string[];
+  /** Distinct API tokens with samples: the rate-limit multiplier for token-keyed services. */
+  tokens: number;
   cap: number;
   limitsVerified: boolean;
   knownService: boolean;
@@ -58,6 +63,8 @@ export interface PlanFilters {
 const MAX_SLOTS_PER_SERVICE = 5000;
 const READ = new Set(["GET", "HEAD", "OPTIONS"]);
 
+type TokenScope = AppProfile["tokenScope"];
+
 export function selectEndpoints(catalog: Catalog, guard: CompiledGuard, f: PlanFilters): { selected: CatalogEndpoint[]; excluded: LoadPlan["excluded"] } {
   const selected: CatalogEndpoint[] = [];
   const excluded: LoadPlan["excluded"] = [];
@@ -78,36 +85,38 @@ export function selectEndpoints(catalog: Catalog, guard: CompiledGuard, f: PlanF
   return { selected, excluded };
 }
 
-function samplesByUser(samples: Sample[]): Map<string, Sample[]> {
+function samplesByToken(samples: Sample[], scope: TokenScope): Map<string, Sample[]> {
   const m = new Map<string, Sample[]>();
   for (const s of samples) {
-    const list = m.get(s.user) ?? [];
+    const key = tokenKeyFor(scope, s.user, s.companyId);
+    const list = m.get(key) ?? [];
     list.push(s);
-    m.set(s.user, list);
+    m.set(key, list);
   }
   return new Map([...m.entries()].sort(([a], [b]) => a.localeCompare(b)));
 }
 
 /**
- * The request sequence for one endpoint: walk variants, and for each, one request per user (users innermost,
+ * The request sequence for one endpoint: walk variants, and for each, one request per token (tokens innermost,
  * so each token gets an equal share). Samples rotate so every recorded sample is used.
  */
-export function endpointSequence(e: CatalogEndpoint, baseOnly: boolean): PlannedRequest[] {
-  const byUser = samplesByUser(e.samples);
+export function endpointSequence(e: CatalogEndpoint, baseOnly: boolean, scope: TokenScope = "user"): PlannedRequest[] {
+  const byToken = samplesByToken(e.samples, scope);
   const variants = baseOnly ? [e.variants[0] ?? { label: "base", set: [] }] : e.variants.length ? e.variants : [{ label: "base", set: [] }];
-  const maxSamples = Math.max(...[...byUser.values()].map((l) => l.length));
+  const maxSamples = Math.max(...[...byToken.values()].map((l) => l.length));
   const rounds = baseOnly ? maxSamples : Math.max(variants.length, maxSamples);
   const seq: PlannedRequest[] = [];
   for (let i = 0; i < rounds; i++) {
     const v = variants[i % variants.length]!;
-    for (const [user, list] of byUser) {
+    for (const [token, list] of byToken) {
       if (baseOnly && i >= list.length) continue;
       const sample = list[i % list.length]!;
       const { url, body } = applyVariant(sample, v);
       seq.push({
         tpl: e.key,
         variant: v.label,
-        user,
+        user: sample.user,
+        token,
         method: e.method,
         url,
         body,
@@ -143,18 +152,21 @@ export function buildLoadPlan(
     list.push(e);
     byService.set(e.service, list);
   }
+  const scope = catalog.tokenScope ?? "user";
   const plans: ServicePlan[] = [];
   for (const [name, endpoints] of [...byService.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     const cfg = services.get(name);
     const users = [...new Set(endpoints.flatMap((e) => e.samples.map((s) => s.user)))].sort();
+    const tokens = new Set(endpoints.flatMap((e) => e.samples.map((s) => tokenKeyFor(scope, s.user, s.companyId)))).size;
     const slots = filters.baseOnly
-      ? endpoints.flatMap((e) => endpointSequence(e, true))
-      : interleave(endpoints.map((e) => endpointSequence(e, false)));
+      ? endpoints.flatMap((e) => endpointSequence(e, true, scope))
+      : interleave(endpoints.map((e) => endpointSequence(e, false, scope)));
     plans.push({
       name,
       endpoints: endpoints.map((e) => e.key),
       users,
-      cap: serviceCap(cfg, users.length, safety),
+      tokens,
+      cap: serviceCap(cfg, tokens, safety),
       limitsVerified: cfg.limitsVerified,
       knownService: cfg.known,
       slots,

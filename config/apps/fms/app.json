@@ -1,0 +1,45 @@
+{
+  "_comment": "FMS_UI (../FMS_UI). Auth0 login through the app's /login page, then one API token per company: the app swaps its Auth0 token (localStorage auth0Token) for a company token (access_token) at the auth API. The company is not in the URL. Selectors: shared SortableTableColumn (th.sortable-header) and PagingControl (\">\" button), Kendo grids, react-loading-skeleton. companyTypeClaim is unverified until the first pg-fms login (Phase 3); a missing claim just disables page companyTypes filtering.",
+  "name": "fms",
+  "pageUrl": "{web}/{path}",
+  "pagePattern": "^/(?<path>.*)$",
+  "loginPath": "/login",
+  "tokenKey": "access_token",
+  "tokenScope": "company",
+  "login": {
+    "kind": "company-exchange",
+    "auth0TokenKey": "auth0Token",
+    "companiesPath": "/api/users/v1/usersauth/companies",
+    "exchangePath": "/api/v1/auth2/auth0Validation",
+    "accessTokenHeader": "x_access_token",
+    "refreshTokenHeader": "x_refresh_token",
+    "refreshTokenKey": "refresh_token",
+    "extraStorage": { "auth0Handled": "true", "isAuth0User": "true" },
+    "companyTypeClaim": "companyType",
+    "pickerSelector": "[data-testid=\"active-companies-list\"] .continue-btn"
+  },
+  "authCalls": [
+    { "method": "POST", "path": "/v1/auth2/(auth0Validation|refresh)$" },
+    { "method": "POST", "path": "/v1/users/authPortal$" }
+  ],
+  "busySelectors": [
+    ".react-loading-skeleton",
+    ".spinner-border",
+    ".spinner-grow",
+    ".k-loading-mask",
+    ".fa-spin",
+    ".loading"
+  ],
+  "selectors": {
+    "tab": "[role=\"tab\"], .nav-tabs .nav-link, .k-tabstrip-items .k-item",
+    "sortableHeader": "th.sortable-header, .k-grid-header th .k-link",
+    "nextPage": "button:text-is(\">\"), .k-pager-nav[title*=\"next\" i], .k-pager-nav[aria-label*=\"next\" i], button[aria-label*=\"next page\" i]",
+    "searchBox": "input[type=\"search\"], input[placeholder*=\"Search\" i]",
+    "firstRow": [
+      ".k-grid tbody tr:first-child a",
+      "table tbody tr:first-child a",
+      ".k-grid tbody tr:first-child td",
+      "table tbody tr:first-child td"
+    ]
+  }
+}

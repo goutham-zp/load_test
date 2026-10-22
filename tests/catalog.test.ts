@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildCatalog, resolveEndpoint } from "../src/catalog/build.ts";
-import { pagePathFromUrl, pagePathRegex, templatePath, templateSegment } from "../src/catalog/normalize.ts";
+import { pagePathRegex, templatePath, templateSegment } from "../src/catalog/normalize.ts";
 import { applyVariant, buildVariants, classify, detectDimensions, parseDateValue, shiftDate } from "../src/catalog/params.ts";
 import type { RecordedRequest, Sample } from "../src/catalog/types.ts";
 import { createRouteMatcher, templateToRegex } from "../src/gateway/routes.ts";
@@ -15,8 +15,7 @@ describe("templateSegment / templatePath", () => {
     expect(templateSegment("2026-01-31")).toBe("{date}");
   });
 
-  it("extracts company and page path from page URLs", () => {
-    expect(pagePathFromUrl("https://x/en/retailer/1001/invoices/my-invoices?x=1", "en")).toEqual({ companyId: "1001", rest: "invoices/my-invoices" });
+  it("matches page paths with placeholders", () => {
     expect(pagePathRegex("invoices/payment-activity/{transactionId}").test("invoices/payment-activity/abc123")).toBe(true);
     expect(pagePathRegex("invoices/payment-activity/{transactionId}").test("invoices/payment-activity")).toBe(false);
   });
@@ -136,6 +135,8 @@ describe("buildCatalog", () => {
     const matcher = createRouteMatcher([]);
     const c = buildCatalog({
       env: "t",
+      app: "retailer",
+      tokenScope: "user",
       webBaseUrl: "https://web",
       gatewayBaseUrls: ["https://gw"],
       users: ["user1"],

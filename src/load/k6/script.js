@@ -73,7 +73,8 @@ function send(slotIndex) {
     refused.add(1, { svc: svc.name, tpl: slot.tpl });
     return;
   }
-  const headers = Object.assign({}, slot.headers, { Authorization: "Bearer " + tokens[slot.user] });
+  // slot.token is the user, or user|company when each company has its own token (plans before it existed: user).
+  const headers = Object.assign({}, slot.headers, { Authorization: "Bearer " + tokens[slot.token || slot.user] });
   const res = http.request(slot.method, slot.url, slot.body === undefined ? null : slot.body, {
     headers,
     timeout: `${step.timeoutSec}s`,

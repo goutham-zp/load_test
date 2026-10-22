@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.2.0 — 2026-10-21
+
+FMS_UI support (company tokens) next to the DXP.Web retailer portal.
+
+- **Apps.** Each env names its app (`"app"`, default `retailer`). Everything that drives the browser comes from
+  `config/apps/<app>/`: `app.json` (page URL pattern, login, token key and scope, loading indicators, selectors, auth
+  calls), `pages.json` and `interactions.json`. The retailer config moved there unchanged; on the mock its catalog is
+  identical to before (same endpoints, samples, variants, pages and interactions).
+- **Company-token login (fms).** Auth0 through the app's own `/login` page, then the company list and one token exchange
+  per company. One saved session per user + company; `login`/`discover` take `--max-companies`.
+- **Load per company token.** Catalog samples are capped per token; each planned request carries its token key
+  (`user|company`) and k6 sends that token. `smoke`/`run` log in to exactly the catalog's companies and stop before
+  sending load if a token is missing. Rate ceilings of token-keyed services count tokens instead of users.
+- **Read-only guard:** the app's declared auth calls (FMS token exchange and refresh) are allowed as `auth` in the browser
+  and never recorded or replayed. FMS logins run in a guarded browser.
+- **API hosts:** discovery reports fetch/XHR hosts outside `gatewayBaseUrls` (`untrackedHosts` in the catalog).
+  `hostServices` in an env maps directly-called hosts to a service; their endpoint keys carry the service.
+- **Ready check** uses the app's loading indicators and also looks inside iframes (FMS_UI embeds DXP.Web reports).
+- **Interactions** use the app's selectors; FMS covers `th.sortable-header`, the `>` pager button, Kendo grids and
+  bootstrap tabs. Pages can be limited to `companyTypes` (from the company token's claim).
+- **Login form** handles username-only screens before the password (the app's own page, Auth0 identifier-first).
+- Reports show the app; `compare` warns when two runs are from different apps.
+- New `envs/pg-fms.json` starting point (pg-fms-ui.app.fintech.com), `envs/mock-fms.json` and an FMS-style mock.
+- **Users per env:** `userPrefix` in an env (e.g. `LT_FMS_USER_`) reads that env's users from `.env`, so FMS_UI and
+  retailer users live side by side. Keys stay `user1`, `user2`, ...
+- **No auth host needed up front:** when the token-exchange URL is unknown, the FMS login clicks the first company in
+  the app's picker (`pickerSelector`), takes the URL from the app's own exchange call, waits for the app's reload, then
+  exchanges for each chosen company itself.
+- **FMS username lookup allowed:** after the username, FMS_UI POSTs `/v1/users/authPortal` to ask whether the user signs
+  in through Auth0. The guard blocked it and the app sent the browser back to `/login`; it is now an FMS auth call.
+  The mock makes the same call. `envs/pg-fms.json` points at the Auth0 tenant the app actually redirects to.
+- **Auth0 decoy button:** Auth0's newer login screens put a hidden `aria-hidden` Continue button under the input, first
+  in the page; the login clicked it and timed out. Submit now skips hidden and `aria-hidden` buttons (the mock has the
+  decoy too). After a submit, a URL change also counts as the next screen, so going from the app's username page to
+  Auth0's (which has its own username field) no longer waits 30s.
+- **FMS calls through the gateway:** with its KrakenD flag on, FMS_UI drops `api/` and adds a router prefix
+  (`/api/v1/auth2/auth0Validation` -> `/fms/v1/auth2/auth0Validation`). The login and the guard's auth calls now match
+  both forms; before, the login missed the app's exchange and failed with "found no companies".
+- **Users without a company list:** FMS_UI lists companies only behind a feature flag and when the user has no default
+  company; otherwise it swaps straight to the default. The login then reads the list next to the exchange (same
+  gateway prefix) for `--max-companies` above 1, or keeps the app's default company. The mock has such a user
+  (`default…` email) and serves the list through the gateway.
+- **`scripts/clone-gateway-config.sh`:** clones or updates the 4 API gateway config repos the tool reads (`fms`,
+  `data-platform`, `fintech-platforms`, `platform-engineering-internal`; not the `-opm`/`-demo` copies) with a PAT,
+  shallow, without storing the PAT anywhere. For headless servers.
+
 ## 0.1.8 — 2026-10-21
 
 - Discovery backs up the current `catalog.json`, `recording.json` and `discovery-steps.json` to

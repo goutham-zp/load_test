@@ -1,22 +1,8 @@
 import type { Locator, Page } from "playwright";
-import type { InteractionsFile, PageInteractions } from "../config/types.ts";
+import type { AppSelectors, InteractionsFile, PageInteractions } from "../config/types.ts";
 
 /** Measures one labelled action and waits for page-ready. Resolves false when the page is stuck (stop interacting). */
 export type Measure = (label: string, action: () => Promise<void>) => Promise<boolean>;
-
-const SORTABLE_HEADER = [
-  ".MuiDataGrid-columnHeader--sortable",
-  "[role=\"columnheader\"][aria-sort]",
-  "th .MuiTableSortLabel-root",
-].join(", ");
-
-const NEXT_PAGE = [
-  "button[aria-label=\"Go to next page\"]",
-  "button[aria-label=\"next page\"]",
-  "button[aria-label=\"Next page\"]",
-].join(", ");
-
-const SEARCH_BOX = "input[type=\"search\"], input[placeholder*=\"Search\" i]";
 
 export function resolveInteractions(file: InteractionsFile, pageId: string): PageInteractions | undefined {
   const entry = file.pages[pageId];
@@ -44,15 +30,17 @@ async function labelOf(el: Locator, fallback: string): Promise<string> {
  * Runs a page's scripted interactions; each action is one measured step. A failed action is skipped;
  * a step where the page never becomes ready stops the remaining interactions for this page.
  */
-export async function runInteractions(page: Page, cfg: PageInteractions, measure: Measure, log: (msg: string) => void): Promise<void> {
+export async function runInteractions(page: Page, cfg: PageInteractions, measure: Measure, log: (msg: string) => void, sel: AppSelectors): Promise<void> {
   // Tabs: open every tab that isn't selected, then go back to the first one.
   if (cfg.tabs) {
-    const tabs = await visible(page.locator("[role=\"tab\"]"));
+    const tabs = await visible(page.locator(sel.tab));
     const wanted = cfg.tabs === "auto" ? undefined : cfg.tabs.map((t) => t.toLowerCase());
     let firstSelected: Locator | undefined;
     for (const tab of tabs) {
       const label = await labelOf(tab, "tab");
-      const selected = (await tab.getAttribute("aria-selected").catch(() => null)) === "true";
+      const selected =
+        (await tab.getAttribute("aria-selected").catch(() => null)) === "true" ||
+        /(^|\s)active(\s|$)/.test((await tab.getAttribute("class").catch(() => null)) ?? "");
       if (selected) {
         firstSelected ??= tab;
         continue;
@@ -68,20 +56,20 @@ export async function runInteractions(page: Page, cfg: PageInteractions, measure
 
   // Grid: sort by the first N sortable columns, then page forward.
   if (cfg.grid) {
-    const headers = (await visible(page.locator(SORTABLE_HEADER))).slice(0, cfg.grid.sortColumns ?? 0);
+    const headers = (await visible(page.locator(sel.sortableHeader))).slice(0, cfg.grid.sortColumns ?? 0);
     for (const h of headers) {
       const label = await labelOf(h, "column");
       if (!(await measure(`sort:${label}`, () => h.click({ timeout: 5_000 })))) return;
     }
     for (let i = 0; i < (cfg.grid.nextPages ?? 0); i++) {
-      const next = (await visible(page.locator(NEXT_PAGE)))[0];
+      const next = (await visible(page.locator(sel.nextPage)))[0];
       if (!next || !(await next.isEnabled().catch(() => false))) break;
       if (!(await measure(`page:${i + 2}`, () => next.click({ timeout: 5_000 })))) return;
     }
   }
 
   if (cfg.search?.terms.length) {
-    const box = (await visible(page.locator(cfg.search.selector ?? SEARCH_BOX)))[0];
+    const box = (await visible(page.locator(cfg.search.selector ?? sel.searchBox)))[0];
     if (box) {
       for (const term of cfg.search.terms) {
         const ok = await measure(`search:${term}`, async () => {
@@ -109,18 +97,9 @@ export async function runInteractions(page: Page, cfg: PageInteractions, measure
   }
 }
 
-const FIRST_ROW_SELECTORS = [
-  ".MuiDataGrid-row[data-rowindex=\"0\"] a",
-  ".MuiDataGrid-row[data-rowindex=\"0\"] .MuiDataGrid-cell",
-  "[role=\"row\"][data-rowindex=\"0\"] a",
-  "[role=\"row\"][data-rowindex=\"0\"]",
-  "table tbody tr:first-child a",
-  "table tbody tr:first-child td",
-];
-
 /** Clicks into the first row of a list page to reach a detail page. Returns false if nothing clickable. */
-export async function clickFirstRow(page: Page, customSelector?: string): Promise<boolean> {
-  const selectors = customSelector ? [customSelector] : FIRST_ROW_SELECTORS;
+export async function clickFirstRow(page: Page, firstRow: string[], customSelector?: string): Promise<boolean> {
+  const selectors = customSelector ? [customSelector] : firstRow;
   for (const sel of selectors) {
     const el = page.locator(sel).first();
     if (await el.isVisible().catch(() => false)) {

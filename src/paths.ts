@@ -6,6 +6,7 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 
 export const dirs = {
   config: path.join(ROOT, "config"),
+  apps: path.join(ROOT, "config", "apps"),
   envs: path.join(ROOT, "envs"),
   catalogs: path.join(ROOT, "catalogs"),
   runs: path.join(ROOT, "runs"),

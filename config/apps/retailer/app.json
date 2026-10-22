@@ -1,0 +1,35 @@
+{
+  "_comment": "DXP.Web retailer portal. One Auth0 token per user (localStorage \"token\"); the company is in the URL; companies come from the app's /users/data call. Selectors match MUI.",
+  "name": "retailer",
+  "pageUrl": "{web}/{lang}/retailer/{company}/{path}",
+  "pagePattern": "^/{lang}/retailer/(?<company>\\d+)(?:/(?<path>.*))?$",
+  "loginPath": "/{lang}/retailer",
+  "tokenKey": "token",
+  "tokenScope": "user",
+  "login": {
+    "kind": "users-data",
+    "usersDataPath": "/fms/v2.1/users/data",
+    "companyRoute": "/{lang}/retailer/(\\d+)"
+  },
+  "busySelectors": [
+    ".MuiCircularProgress-root",
+    ".MuiLinearProgress-root",
+    ".MuiSkeleton-root",
+    ".MuiDataGrid-overlay .MuiCircularProgress-root",
+    "[role=\"progressbar\"]"
+  ],
+  "selectors": {
+    "tab": "[role=\"tab\"]",
+    "sortableHeader": ".MuiDataGrid-columnHeader--sortable, [role=\"columnheader\"][aria-sort], th .MuiTableSortLabel-root",
+    "nextPage": "button[aria-label=\"Go to next page\"], button[aria-label=\"next page\"], button[aria-label=\"Next page\"]",
+    "searchBox": "input[type=\"search\"], input[placeholder*=\"Search\" i]",
+    "firstRow": [
+      ".MuiDataGrid-row[data-rowindex=\"0\"] a",
+      ".MuiDataGrid-row[data-rowindex=\"0\"] .MuiDataGrid-cell",
+      "[role=\"row\"][data-rowindex=\"0\"] a",
+      "[role=\"row\"][data-rowindex=\"0\"]",
+      "table tbody tr:first-child a",
+      "table tbody tr:first-child td"
+    ]
+  }
+}

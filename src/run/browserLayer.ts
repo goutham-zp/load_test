@@ -5,7 +5,8 @@ import type { UserSession } from "../browser/session.ts";
 import { RequestTracker } from "../browser/tracker.ts";
 import { visitPage, type VisitStep } from "../browser/visit.ts";
 import type { Catalog } from "../catalog/types.ts";
-import type { EnvConfig, InteractionsFile, Settings } from "../config/types.ts";
+import { busySelector } from "../config/app.ts";
+import type { AppProfile, EnvConfig, InteractionsFile, Settings } from "../config/types.ts";
 import type { CompiledGuard } from "../guard/readonly.ts";
 
 export interface LayerVisit extends VisitStep {
@@ -28,6 +29,7 @@ export class BrowserLayer {
   private contexts: BrowserContext[] = [];
   private readonly browser: Browser;
   private readonly env: EnvConfig;
+  private readonly app: AppProfile;
   private readonly guard: CompiledGuard;
   private readonly sessions: UserSession[];
   private readonly catalog: Catalog;
@@ -40,6 +42,7 @@ export class BrowserLayer {
   constructor(args: {
     browser: Browser;
     env: EnvConfig;
+    app: AppProfile;
     guard: CompiledGuard;
     sessions: UserSession[];
     catalog: Catalog;
@@ -51,6 +54,7 @@ export class BrowserLayer {
   }) {
     this.browser = args.browser;
     this.env = args.env;
+    this.app = args.app;
     this.guard = args.guard;
     this.sessions = args.sessions;
     this.catalog = args.catalog;
@@ -70,22 +74,29 @@ export class BrowserLayer {
     }
   }
 
-  private pagesFor(user: string) {
+  /** Pages this session can open: its user's discovered URLs for the companies the session holds. */
+  private pagesFor(session: UserSession) {
     return this.catalog.pages
       .filter((p) => p.reached && (!this.onlyPage || p.id === this.onlyPage))
-      .map((p) => ({ id: p.id, urls: p.urls.filter((u) => u.user === user).map((u) => u.url) }))
+      .map((p) => ({ id: p.id, urls: p.urls.filter((u) => u.user === session.user && session.companies.includes(u.companyId)).map((u) => u.url) }))
       .filter((p) => p.urls.length > 0);
   }
 
   private async loop(w: number, session: UserSession, context: BrowserContext, blocked: { reason: string }[]): Promise<void> {
-    const pages = this.pagesFor(session.user);
+    const pages = this.pagesFor(session);
     if (pages.length === 0) {
-      this.log(`browser ${w}: no discovered pages for ${session.user}`);
+      this.log(`browser ${w}: no discovered pages for ${session.key}`);
       return;
     }
     const page = await context.newPage();
     const tracker = new RequestTracker(page, { gatewayBaseUrls: this.env.gatewayBaseUrls, inspectBodies: false });
-    const opts = { quietMs: this.settings.browser.readyQuietMs, timeoutMs: this.settings.browser.readyTimeoutMs, log: () => {} };
+    const opts = {
+      quietMs: this.settings.browser.readyQuietMs,
+      timeoutMs: this.settings.browser.readyTimeoutMs,
+      busySelector: busySelector(this.app),
+      selectors: this.app.selectors,
+      log: () => {},
+    };
     let i = w; // stagger workers across the page list
     while (!this.stopping) {
       if (!this.active) {

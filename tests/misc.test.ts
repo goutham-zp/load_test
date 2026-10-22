@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { companiesFromUserData, decodeJwtExp, isUsersDataUrl, needsRefresh } from "../src/browser/session.ts";
+import { companiesFromUserData, isUsersDataUrl } from "../src/browser/login.ts";
+import { decodeJwtExp, needsRefresh } from "../src/browser/session.ts";
 import { findTotalCount, replayHeaders } from "../src/browser/tracker.ts";
 import { isProdLikeHost } from "../src/config/safety.ts";
 import type { PageConfig } from "../src/config/types.ts";
@@ -53,16 +54,17 @@ describe("session helpers", () => {
   });
 
   it("recognises the /users/data call", () => {
-    expect(isUsersDataUrl("https://pg-apis.app.fintech.com/fms/v2.1/users/data")).toBe(true);
-    expect(isUsersDataUrl("https://pg-apis.app.fintech.com/fms/v2.1/users/data?x=1")).toBe(true);
-    expect(isUsersDataUrl("https://pg-apis.app.fintech.com/fms/users/preferences/abc")).toBe(false);
+    const p = "/fms/v2.1/users/data";
+    expect(isUsersDataUrl("https://pg-apis.app.fintech.com/fms/v2.1/users/data", p)).toBe(true);
+    expect(isUsersDataUrl("https://pg-apis.app.fintech.com/fms/v2.2/users/data?x=1", p)).toBe(true);
+    expect(isUsersDataUrl("https://pg-apis.app.fintech.com/fms/users/preferences/abc", p)).toBe(false);
   });
 
   it("decodes JWT exp and decides refresh", () => {
     const payload = Buffer.from(JSON.stringify({ exp: 2_000_000_000 })).toString("base64url");
     const token = `x.${payload}.y`;
     expect(decodeJwtExp(token)).toBe(2_000_000_000);
-    const s = { user: "u", token, exp: 1000, companies: [], storageStatePath: "", loggedInAt: "" };
+    const s = { key: "u", user: "u", token, exp: 1000, companies: [], storageStatePath: "", loggedInAt: "" };
     expect(needsRefresh(s, 300, 600)).toBe(false);
     expect(needsRefresh(s, 300, 800)).toBe(true);
     expect(needsRefresh(undefined, 300)).toBe(true);

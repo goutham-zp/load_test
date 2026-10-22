@@ -1,6 +1,6 @@
 # dxp-loadtest
 
-Read-only load testing for the DXP retailer portal: k6 drives API load in steps up to the breaking point while
+Read-only load testing for the DXP retailer portal (DXP.Web) and FMS_UI: k6 drives API load in steps up to the breaking point while
 headless browsers measure real page timings, then an HTML report ranks the slowest pages and endpoints (mapped to
 their backend service). `compare` diffs two runs, e.g. Oracle vs Postgres deployments.
 
@@ -15,6 +15,10 @@ npm run lt -- run      --env pg-test --label baseline
 npm run lt -- compare  <runA> <runB>
 ```
 
-Try it locally first: `npm run mock` in one terminal, then use `--env mock` (any email, password `pw`).
+Each env names its app (`"app": "retailer"` or `"fms"`); the app's pages, interactions, selectors and login live in
+`config/apps/<app>/`. FMS_UI starts from `envs/pg-fms.json`.
+
+Try it locally first: `npm run mock` in one terminal, then use `--env mock` (retailer) or `--env mock-fms` (FMS_UI-style
+company tokens). Any email, password `pw`.
 
 Checks: `npm run check` (type-check + unit tests).

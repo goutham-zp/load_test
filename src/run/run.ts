@@ -4,16 +4,16 @@ import path from "node:path";
 import { chromium } from "playwright";
 import { advanceStates, emergencyReason, nothingLeftToClimb, type ServiceState } from "../analysis/evaluate.ts";
 import { emptyStats } from "../analysis/stats.ts";
-import { ensureSessions, writeK6Tokens } from "../browser/session.ts";
+import { ensureSessions, sessionsOf, writeK6Tokens, type UserSession } from "../browser/session.ts";
 import { catalogSignature } from "../catalog/build.ts";
 import type { Catalog } from "../catalog/types.ts";
-import { loadAllowlist, loadInteractions, loadServices, loadSettings, loadUsers, readJson, writeJson } from "../config/load.ts";
+import { loadApp, loadInteractions, loadServices, loadSettings, loadUsers, readJson, writeJson } from "../config/load.ts";
 import { envHosts } from "../config/safety.ts";
-import type { EnvConfig } from "../config/types.ts";
-import { createRouteMatcher, loadGatewayRoutes } from "../gateway/routes.ts";
-import { compileGuard } from "../guard/readonly.ts";
+import type { AppProfile, EnvConfig } from "../config/types.ts";
+import { envMatcher } from "../gateway/routes.ts";
+import { envGuard } from "../guard/readonly.ts";
 import { parseK6Output, startK6, writePlanFile, type K6Handle } from "../load/k6runner.ts";
-import { buildLoadPlan, stepRates, type PlanFilters } from "../load/plan.ts";
+import { buildLoadPlan, stepRates, type LoadPlan, type PlanFilters } from "../load/plan.ts";
 import { catalogDir, dirs, expandHome } from "../paths.ts";
 import { renderRunReport } from "../report/runReport.ts";
 import { confirm, fmtRate, k6Version, playwrightVersion, slug, timestamp } from "../util.ts";
@@ -34,10 +34,39 @@ export interface RunOptions {
   log: (m: string) => void;
 }
 
-export function loadCatalog(envName: string): Catalog {
+export function loadCatalog(envName: string, app?: AppProfile): Catalog {
   const file = path.join(catalogDir(envName), "catalog.json");
   if (!fs.existsSync(file)) throw new Error(`No catalog for "${envName}". Run: npm run lt -- discover --env ${envName}`);
-  return readJson<Catalog>(file);
+  const catalog = readJson<Catalog>(file);
+  const made = catalog.app ?? "retailer";
+  if (app && made !== app.name) throw new Error(`The ${envName} catalog was discovered for app "${made}", but the env is now app "${app.name}". Run discover again.`);
+  return catalog;
+}
+
+/** Company-token apps: the companies each user's samples use, so logins cover exactly what will be replayed. */
+export function catalogCompanies(catalog: Catalog): Record<string, string[]> | undefined {
+  if (catalog.tokenScope !== "company") return undefined;
+  const out: Record<string, string[]> = {};
+  for (const e of catalog.endpoints) {
+    for (const s of e.samples) {
+      const list = (out[s.user] ??= []);
+      if (!list.includes(s.companyId)) list.push(s.companyId);
+    }
+  }
+  return out;
+}
+
+/** Fails before any load is sent when a planned request has no token (a company the user can no longer open). */
+export function assertTokensFor(plan: LoadPlan, sessions: Record<string, UserSession>): void {
+  const have = new Set(Object.values(sessions).map((s) => s.key));
+  const missing = [...new Set(plan.services.flatMap((s) => s.slots.map((r) => r.token)))].filter((k) => !have.has(k));
+  if (missing.length) {
+    throw new Error(`No login for ${missing.length} planned token(s): ${missing.slice(0, 5).join(", ")}. The users may have lost access to these companies; run discover again.`);
+  }
+}
+
+export function sessionList(sessions: Record<string, UserSession>, users: { key: string }[]): UserSession[] {
+  return users.flatMap((u) => sessionsOf(sessions, u.key));
 }
 
 async function environmentReachable(env: EnvConfig): Promise<string | undefined> {
@@ -55,10 +84,11 @@ async function environmentReachable(env: EnvConfig): Promise<string | undefined>
 export async function runLoadTest(opts: RunOptions): Promise<string> {
   const { env, log } = opts;
   const settings = loadSettings();
-  const catalog = loadCatalog(env.name);
-  const users = loadUsers().filter((u) => catalog.users.includes(u.key));
+  const app = loadApp(env);
+  const catalog = loadCatalog(env.name, app);
+  const users = loadUsers(env).filter((u) => catalog.users.includes(u.key));
   if (users.length === 0) throw new Error("None of the catalog's users are configured in .env.");
-  const guard = compileGuard({ auth0Host: new URL(env.auth0Domain).host, allowlist: loadAllowlist(), blockedThirdPartyHosts: settings.blockedThirdPartyHosts });
+  const guard = envGuard(env, app);
   const services = loadServices(env);
   const plan = buildLoadPlan(catalog, guard, services, settings.load.safetyFactor, opts.filters);
   if (plan.services.length === 0) {
@@ -66,17 +96,17 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
     const pages = catalog.pages.filter((p) => p.reached).map((p) => p.id).join(", ");
     throw new Error(`Nothing to load: no replayable catalog endpoints match the filters.\n  services: ${services}\n  pages: ${pages}`);
   }
-  const matcher = createRouteMatcher(loadGatewayRoutes(expandHome(env.gatewayConfigDir ?? settings.gatewayConfigDir)));
+  const matcher = envMatcher(env, settings.gatewayConfigDir);
 
   const steps = opts.steps ?? settings.load.stepsRps;
   const stepDurationSec = opts.stepDurationSec ?? settings.load.stepDurationSec;
   const browsers = opts.browsers ?? settings.browser.workers;
 
-  log(`Environment: ${env.name} (${env.kind})  hosts: ${envHosts(env).join(", ")}`);
+  log(`Environment: ${env.name} (${env.kind}, app ${app.name})  hosts: ${envHosts(env).join(", ")}`);
   log(`Users: ${users.length}  endpoints: ${plan.totalEndpoints}  services: ${plan.services.length}  browsers: ${browsers}`);
   log(`Steps (total req/s): ${steps.join(", ")}  x ${stepDurationSec}s each  -> up to ~${Math.round((steps.length * (stepDurationSec + 30)) / 60)} min`);
   for (const s of plan.services) {
-    log(`  ${s.name.padEnd(42)} endpoints=${String(s.endpoints.length).padStart(3)} users=${s.users.length} cap=${fmtRate(s.cap)} req/s${s.limitsVerified ? "" : " (limit unverified)"}`);
+    log(`  ${s.name.padEnd(42)} endpoints=${String(s.endpoints.length).padStart(3)} users=${s.users.length}${s.tokens !== s.users.length ? ` tokens=${s.tokens}` : ""} cap=${fmtRate(s.cap)} req/s${s.limitsVerified ? "" : " (limit unverified)"}`);
   }
   if (plan.excluded.length) log(`Excluded endpoints: ${plan.excluded.length} (listed in the report)`);
   if (!opts.yes && !(await confirm("Start the load test? [y/N]"))) throw new Error("Cancelled.");
@@ -115,15 +145,18 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
 
   try {
     const horizon = stepDurationSec + 120 + settings.tokenRefreshMarginSec;
-    let sessions = await ensureSessions(browser, env, users, horizon, log);
+    const ensureOpts = { companies: catalogCompanies(catalog) };
+    let sessions = await ensureSessions(browser, env, app, guard, users, horizon, log, ensureOpts);
+    assertTokensFor(plan, sessions);
     if (browsers > 0) {
       layer = new BrowserLayer({
         browser,
         env,
+        app,
         guard,
-        sessions: users.map((u) => sessions[u.key]!),
+        sessions: sessionList(sessions, users),
         catalog,
-        interactions: loadInteractions(),
+        interactions: loadInteractions(app),
         settings,
         workers: browsers,
         onlyPage: opts.filters.onlyPage,
@@ -134,7 +167,8 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
 
     for (let i = 0; i < steps.length; i++) {
       if (aborted) break;
-      sessions = await ensureSessions(browser, env, users, horizon, log);
+      sessions = await ensureSessions(browser, env, app, guard, users, horizon, log, ensureOpts);
+      assertTokensFor(plan, sessions);
       const tokensFile = writeK6Tokens(env.name, sessions);
       const rates = stepRates(plan, steps[i]!, held);
       const totalRate = [...rates.values()].reduce((a, r) => a + r.rate, 0);
@@ -266,6 +300,7 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
       tool: "dxp-loadtest",
       kind: "run",
       env: env.name,
+      app: app.name,
       envKind: env.kind,
       webBaseUrl: env.webBaseUrl,
       label: opts.label,

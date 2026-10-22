@@ -1,5 +1,5 @@
 {
-  "_comment": "Read-only retailer pages under /<lang>/retailer/<companyId>/. Detail pages are reached by clicking the first row of 'detailFrom.page' (add 'clickSelector' if the default row click doesn't land there). Set \"enabled\": false to skip a page.",
+  "_comment": "Read-only retailer pages: path is {path} in app.json pageUrl (/<lang>/retailer/<companyId>/<path>). Detail pages are reached by clicking the first row of 'detailFrom.page' (add 'clickSelector' if the default row click doesn't land there). Set \"enabled\": false to skip a page.",
   "pages": [
     { "id": "home", "path": "home" },
     { "id": "invoices/my-invoices", "path": "invoices/my-invoices" },

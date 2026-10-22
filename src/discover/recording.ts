@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { BlockedRequest, CatalogPage, RecordedRequest } from "../catalog/types.ts";
+import type { BlockedRequest, CatalogPage, RecordedRequest, UntrackedHost } from "../catalog/types.ts";
 import { readJson } from "../config/load.ts";
 import { timestamp } from "../util.ts";
 
@@ -33,6 +33,7 @@ export interface DiscoveryRecording {
   steps: StoredStep[];
   pages: CatalogPage[];
   blocked: BlockedRequest[];
+  untrackedHosts?: UntrackedHost[];
 }
 
 export const RECORDING_FILE = "recording.json";
@@ -82,7 +83,18 @@ export function mergeRecording(prev: DiscoveryRecording, next: DiscoveryRecordin
     pages: [...pages.values()],
     // Blocked writes carry no user, so a page's list is replaced whenever any user revisits that page.
     blocked: [...prev.blocked.filter((b) => !revisitedPages.has(b.page)), ...next.blocked].sort((a, b) => b.count - a.count),
+    untrackedHosts: mergeUntracked(prev.untrackedHosts ?? [], next.untrackedHosts ?? []),
   };
+}
+
+function mergeUntracked(a: UntrackedHost[], b: UntrackedHost[]): UntrackedHost[] {
+  const byOrigin = new Map<string, UntrackedHost>();
+  for (const h of [...a, ...b]) {
+    const agg = byOrigin.get(h.origin) ?? { ...h, count: 0 };
+    agg.count += h.count;
+    byOrigin.set(h.origin, agg);
+  }
+  return [...byOrigin.values()].sort((x, y) => y.count - x.count);
 }
 
 /** Copies the current catalog files into backups/<time>/ and keeps the newest KEEP_BACKUPS folders. */

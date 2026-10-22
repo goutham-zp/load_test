@@ -1,4 +1,5 @@
 import type { Page, Request } from "playwright";
+import type { UntrackedHost } from "../catalog/types.ts";
 
 export interface TrackedCall {
   stepId: number;
@@ -58,7 +59,11 @@ export interface TrackerOptions {
   gatewayBaseUrls: string[];
   /** Parse JSON responses for total counts (discovery only; costs time). */
   inspectBodies: boolean;
+  /** host[:port] or domains whose fetch/XHR calls are expected outside gatewayBaseUrls (Auth0, blocked third parties). */
+  ignoreHosts?: string[];
 }
+
+
 
 /**
  * Tracks API calls to the gateway on one page: in-flight count and last activity (for the page-ready signal)
@@ -69,6 +74,7 @@ export class RequestTracker {
   lastActivity = 0;
   stepId = 0;
   readonly calls: TrackedCall[] = [];
+  readonly untracked = new Map<string, UntrackedHost>();
   private readonly started = new Map<Request, { at: number; stepId: number; headers: Record<string, string> }>();
   private readonly opts: TrackerOptions;
   private readonly page: Page;
@@ -109,10 +115,33 @@ export class RequestTracker {
       this.inflight = 0;
       return;
     }
-    if (!this.isGateway(req.url())) return;
+    if (!this.isGateway(req.url())) {
+      this.noteUntracked(req);
+      return;
+    }
     this.inflight++;
     this.lastActivity = Date.now();
     this.started.set(req, { at: Date.now(), stepId: this.stepId, headers: req.headers() });
+  }
+
+  private noteUntracked(req: Request): void {
+    const type = req.resourceType();
+    if (type !== "fetch" && type !== "xhr") return;
+    let u: URL;
+    try {
+      u = new URL(req.url());
+    } catch {
+      return;
+    }
+    if (!u.protocol.startsWith("http")) return;
+    const host = u.host.toLowerCase();
+    const hostname = u.hostname.toLowerCase();
+    // Entries are host[:port] (Auth0) or domains (third parties, subdomains included).
+    const ignored = (this.opts.ignoreHosts ?? []).map((h) => h.toLowerCase()).some((h) => host === h || hostname === h || hostname.endsWith("." + h));
+    if (ignored) return;
+    const entry = this.untracked.get(u.origin) ?? { origin: u.origin, count: 0, example: u.pathname };
+    entry.count++;
+    this.untracked.set(u.origin, entry);
   }
 
   private settle(req: Request): { at: number; stepId: number; headers: Record<string, string> } | undefined {

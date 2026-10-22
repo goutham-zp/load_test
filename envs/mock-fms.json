@@ -1,0 +1,13 @@
+{
+  "_comment": "Local fake FMS_UI-style app for trying the company-token flow: npm run mock (another terminal), then --env mock-fms. Users: any email, password pw; each user has two companies (Retail A / Dist B). localhost:4104 is an API called directly (mapped in hostServices); localhost:4105 is deliberately not listed, so discovery reports it as untracked. No authApiBaseUrl: the login clicks the first company in the picker and reads the exchange URL from the app's call. Users come from LT_FMS_USER_<n>_*.",
+  "name": "mock-fms",
+  "kind": "other",
+  "app": "fms",
+  "webBaseUrl": "http://localhost:4103",
+  "lang": "en",
+  "gatewayBaseUrls": ["http://localhost:4102", "http://localhost:4104"],
+  "hostServices": { "http://localhost:4104": "fms/users-direct" },
+  "userPrefix": "LT_FMS_USER_",
+  "auth0Domain": "http://localhost:4101",
+  "gatewayConfigDir": "mock/gateway"
+}

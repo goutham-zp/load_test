@@ -1,0 +1,313 @@
+{
+  "_comment": "FMS_UI view pages (routesConfig.js), FIRST PROPOSAL to confirm in Phase 3. Left out: login/password/SSO routes, forms and wizards (create-invoice, add-new-user, upload-invoices, setup-relationships, company/edit, ...), popups, demo routes (plaid-demo, es-demo), select-company, and detail pages that need ids until their list page and click are known. path is {path} in app.json pageUrl ({web}/{path}). companyTypes (Retailer / Distributor) applies once the company token's type claim is confirmed. Detail pages are reached by clicking the first row of 'detailFrom.page'.",
+  "pages": [
+    {
+      "id": "home",
+      "path": ""
+    },
+    {
+      "id": "retailer-dashboard",
+      "path": "retailer-dashboard",
+      "companyTypes": [
+        "Retailer"
+      ]
+    },
+    {
+      "id": "distributor-dashboard",
+      "path": "distributor-dashboard",
+      "companyTypes": [
+        "Distributor"
+      ]
+    },
+    {
+      "id": "invoice-summary",
+      "path": "invoice-summary"
+    },
+    {
+      "id": "invoice-details",
+      "path": "invoice-details",
+      "detailFrom": {
+        "page": "invoice-summary"
+      }
+    },
+    {
+      "id": "invoices-details",
+      "path": "invoices-details"
+    },
+    {
+      "id": "nonreg-invoice-summary",
+      "path": "nonreg-invoice-summary"
+    },
+    {
+      "id": "invoice-approval",
+      "path": "invoice-approval"
+    },
+    {
+      "id": "invoice-documents",
+      "path": "invoice-documents"
+    },
+    {
+      "id": "invoice-po-validation",
+      "path": "invoice-po-validation"
+    },
+    {
+      "id": "file-submission-status",
+      "path": "file-submission-status"
+    },
+    {
+      "id": "incomplete",
+      "path": "incomplete"
+    },
+    {
+      "id": "incomplete-Distributor-Submissions",
+      "path": "incomplete-Distributor-Submissions",
+      "companyTypes": [
+        "Distributor"
+      ]
+    },
+    {
+      "id": "banking-activity",
+      "path": "banking-activity"
+    },
+    {
+      "id": "banking-activity-non-regulated",
+      "path": "banking-activity-non-regulated"
+    },
+    {
+      "id": "pending-banking-activity",
+      "path": "pending-banking-activity"
+    },
+    {
+      "id": "additional-eft-activity",
+      "path": "additional-eft-activity"
+    },
+    {
+      "id": "credit-card-activity",
+      "path": "credit-card-activity"
+    },
+    {
+      "id": "reconciliation-reports",
+      "path": "reconciliation-reports"
+    },
+    {
+      "id": "early-warning-report",
+      "path": "early-warning-report"
+    },
+    {
+      "id": "audit-report",
+      "path": "audit-report"
+    },
+    {
+      "id": "analytics-reports",
+      "path": "analytics-reports"
+    },
+    {
+      "id": "billing-summary",
+      "path": "billing-summary"
+    },
+    {
+      "id": "billing-details",
+      "path": "billing-details"
+    },
+    {
+      "id": "billing-invoices",
+      "path": "billing-invoices"
+    },
+    {
+      "id": "purchase-orders",
+      "path": "purchase-orders"
+    },
+    {
+      "id": "po-discrepancy-report",
+      "path": "po-discrepancy-report"
+    },
+    {
+      "id": "poContacts",
+      "path": "poContacts"
+    },
+    {
+      "id": "relationships",
+      "path": "relationships"
+    },
+    {
+      "id": "trading-partners",
+      "path": "trading-partners"
+    },
+    {
+      "id": "potential-relationships",
+      "path": "potential-relationships"
+    },
+    {
+      "id": "declined-relationships",
+      "path": "declined-relationships"
+    },
+    {
+      "id": "upcoming-live-dates",
+      "path": "upcoming-live-dates"
+    },
+    {
+      "id": "setup-requests",
+      "path": "setup-requests"
+    },
+    {
+      "id": "distributors",
+      "path": "distributors"
+    },
+    {
+      "id": "mydistributors",
+      "path": "mydistributors",
+      "companyTypes": [
+        "Retailer"
+      ]
+    },
+    {
+      "id": "myvendors-nonregulated",
+      "path": "myvendors-nonregulated",
+      "companyTypes": [
+        "Retailer"
+      ]
+    },
+    {
+      "id": "company/retailer/relationships",
+      "path": "company/retailer/relationships",
+      "companyTypes": [
+        "Retailer"
+      ]
+    },
+    {
+      "id": "company/distributor/retailers",
+      "path": "company/distributor/retailers",
+      "companyTypes": [
+        "Distributor"
+      ]
+    },
+    {
+      "id": "company/distributor/delivery-locations",
+      "path": "company/distributor/delivery-locations",
+      "companyTypes": [
+        "Distributor"
+      ]
+    },
+    {
+      "id": "delivery-locations",
+      "path": "delivery-locations"
+    },
+    {
+      "id": "retailer-locations",
+      "path": "retailer-locations",
+      "companyTypes": [
+        "Retailer"
+      ]
+    },
+    {
+      "id": "retailer-metrics",
+      "path": "retailer-metrics",
+      "companyTypes": [
+        "Retailer"
+      ]
+    },
+    {
+      "id": "retailer-product-catalog",
+      "path": "retailer-product-catalog",
+      "companyTypes": [
+        "Retailer"
+      ]
+    },
+    {
+      "id": "retailer-nonreg-product-catalog",
+      "path": "retailer-nonreg-product-catalog",
+      "companyTypes": [
+        "Retailer"
+      ]
+    },
+    {
+      "id": "distributor-product-catalog",
+      "path": "distributor-product-catalog",
+      "companyTypes": [
+        "Distributor"
+      ]
+    },
+    {
+      "id": "vendor-product-catalog",
+      "path": "vendor-product-catalog"
+    },
+    {
+      "id": "distributor-autopay",
+      "path": "distributor-autopay",
+      "companyTypes": [
+        "Distributor"
+      ]
+    },
+    {
+      "id": "credit-communicator",
+      "path": "credit-communicator"
+    },
+    {
+      "id": "alert-center",
+      "path": "alert-center"
+    },
+    {
+      "id": "company-users",
+      "path": "company-users"
+    },
+    {
+      "id": "company-contacts",
+      "path": "company-contacts"
+    },
+    {
+      "id": "user-rights",
+      "path": "user-rights"
+    },
+    {
+      "id": "personal-profile",
+      "path": "personal-profile"
+    },
+    {
+      "id": "account-settings",
+      "path": "account-settings"
+    },
+    {
+      "id": "payment-preferences",
+      "path": "payment-preferences"
+    },
+    {
+      "id": "integrations",
+      "path": "integrations"
+    },
+    {
+      "id": "spend-overview-reports",
+      "path": "spend-overview-reports",
+      "companyTypes": [
+        "Retailer"
+      ]
+    },
+    {
+      "id": "cost-variance-reports",
+      "path": "cost-variance-reports",
+      "companyTypes": [
+        "Retailer"
+      ]
+    },
+    {
+      "id": "split-case-reports",
+      "path": "split-case-reports",
+      "companyTypes": [
+        "Retailer"
+      ]
+    },
+    {
+      "id": "actual-expected",
+      "path": "actual-expected",
+      "companyTypes": [
+        "Retailer"
+      ]
+    },
+    {
+      "id": "advanced-product-management",
+      "path": "advanced-product-management",
+      "companyTypes": [
+        "Retailer"
+      ]
+    }
+  ]
+}

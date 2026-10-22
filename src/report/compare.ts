@@ -58,6 +58,9 @@ export function delta(a: number | undefined, b: number | undefined): { deltaMs?:
 
 function mismatches(a: RunResults, b: RunResults): string[] {
   const out: string[] = [];
+  const appA = a.meta.app ?? "retailer";
+  const appB = b.meta.app ?? "retailer";
+  if (appA !== appB) out.push(`Different apps (A ${appA}, B ${appB}): the runs load different request sets, so they are not a deployment comparison.`);
   const sa = new Set(a.meta.catalogSignature);
   const sb = new Set(b.meta.catalogSignature);
   const onlyA = [...sa].filter((k) => !sb.has(k));

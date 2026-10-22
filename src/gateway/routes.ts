@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { expandHome } from "../paths.ts";
 
 export interface GatewayRoute {
   /** "<prefix>/<service dir>", e.g. "fms/invoice-apis". */
@@ -80,10 +81,13 @@ export function loadGatewayRoutes(configDir: string): GatewayRoute[] {
 
 export interface RouteMatcher {
   match(method: string, pathname: string): GatewayRoute | undefined;
+  /** Service for a URL on a host the app calls directly (env hostServices: longest matching URL prefix). */
+  hostService(url: string): string | undefined;
   size: number;
 }
 
-export function createRouteMatcher(routes: GatewayRoute[]): RouteMatcher {
+export function createRouteMatcher(routes: GatewayRoute[], hostServices: Record<string, string> = {}): RouteMatcher {
+  const prefixes = Object.entries(hostServices).sort((a, b) => b[0].length - a[0].length);
   const byMethod = new Map<string, GatewayRoute[]>();
   for (const r of routes) {
     const list = byMethod.get(r.method) ?? [];
@@ -92,6 +96,9 @@ export function createRouteMatcher(routes: GatewayRoute[]): RouteMatcher {
   }
   return {
     size: routes.length,
+    hostService(url) {
+      return prefixes.find(([prefix]) => url.startsWith(prefix))?.[1];
+    },
     match(method, pathname) {
       const clean = cleanGatewayPath(decodeURIComponentSafe(pathname));
       let best: GatewayRoute | undefined;
@@ -110,4 +117,9 @@ function decodeURIComponentSafe(s: string): string {
   } catch {
     return s;
   }
+}
+
+/** The gateway routes for an env (its gatewayConfigDir or the settings one) plus its directly-called hosts. */
+export function envMatcher(env: { gatewayConfigDir?: string; hostServices?: Record<string, string> }, settingsGatewayConfigDir: string): RouteMatcher {
+  return createRouteMatcher(loadGatewayRoutes(expandHome(env.gatewayConfigDir ?? settingsGatewayConfigDir)), env.hostServices);
 }

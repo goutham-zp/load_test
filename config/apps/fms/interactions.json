@@ -1,0 +1,53 @@
+{
+  "_comment": "Scripted interactions per FMS_UI page id (see pages.json); same format as config/apps/retailer/interactions.json. tabs: \"auto\" clicks every tab the app profile's tab selector finds. grid: sorts the first N sortable headers (th.sortable-header / Kendo) and presses next page N times. search: terms typed into the page search box.",
+  "defaults": {
+    "tabs": "auto",
+    "grid": {
+      "nextPages": 2,
+      "sortColumns": 3
+    },
+    "search": {
+      "terms": [
+        "a"
+      ]
+    }
+  },
+  "pages": {
+    "invoice-summary": "default",
+    "invoices-details": "default",
+    "nonreg-invoice-summary": "default",
+    "invoice-approval": "default",
+    "invoice-documents": "default",
+    "file-submission-status": "default",
+    "incomplete": "default",
+    "incomplete-Distributor-Submissions": "default",
+    "banking-activity": "default",
+    "banking-activity-non-regulated": "default",
+    "pending-banking-activity": "default",
+    "additional-eft-activity": "default",
+    "credit-card-activity": "default",
+    "reconciliation-reports": "default",
+    "audit-report": "default",
+    "billing-summary": "default",
+    "billing-invoices": "default",
+    "purchase-orders": "default",
+    "po-discrepancy-report": "default",
+    "relationships": "default",
+    "trading-partners": "default",
+    "potential-relationships": "default",
+    "declined-relationships": "default",
+    "upcoming-live-dates": "default",
+    "setup-requests": "default",
+    "distributors": "default",
+    "mydistributors": "default",
+    "company/retailer/relationships": "default",
+    "company/distributor/retailers": "default",
+    "delivery-locations": "default",
+    "retailer-locations": "default",
+    "retailer-product-catalog": "default",
+    "distributor-product-catalog": "default",
+    "alert-center": "default",
+    "company-users": "default",
+    "company-contacts": "default"
+  }
+}

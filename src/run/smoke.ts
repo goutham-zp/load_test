@@ -5,15 +5,16 @@ import { newGuardedContext } from "../browser/context.ts";
 import { ensureSessions, writeK6Tokens } from "../browser/session.ts";
 import { RequestTracker } from "../browser/tracker.ts";
 import { visitPage } from "../browser/visit.ts";
-import { loadAllowlist, loadServices, loadSettings, loadUsers, writeJson } from "../config/load.ts";
+import { busySelector } from "../config/app.ts";
+import { loadApp, loadServices, loadSettings, loadUsers, writeJson } from "../config/load.ts";
 import type { EnvConfig } from "../config/types.ts";
-import { compileGuard } from "../guard/readonly.ts";
+import { envGuard } from "../guard/readonly.ts";
 import { parseK6Output, startK6, writePlanFile } from "../load/k6runner.ts";
 import { buildLoadPlan } from "../load/plan.ts";
 import { dirs } from "../paths.ts";
 import { esc, fmtMs, page } from "../report/html.ts";
 import { timestamp } from "../util.ts";
-import { loadCatalog } from "./run.ts";
+import { assertTokensFor, catalogCompanies, loadCatalog, sessionList } from "./run.ts";
 
 export interface SmokeResult {
   passed: boolean;
@@ -27,9 +28,10 @@ export interface SmokeResult {
 /** Every endpoint once per user sample (base variant, slow pace) plus every page once in a browser. */
 export async function smoke(env: EnvConfig, log: (m: string) => void): Promise<SmokeResult> {
   const settings = loadSettings();
-  const catalog = loadCatalog(env.name);
-  const users = loadUsers().filter((u) => catalog.users.includes(u.key));
-  const guard = compileGuard({ auth0Host: new URL(env.auth0Domain).host, allowlist: loadAllowlist(), blockedThirdPartyHosts: settings.blockedThirdPartyHosts });
+  const app = loadApp(env);
+  const catalog = loadCatalog(env.name, app);
+  const users = loadUsers(env).filter((u) => catalog.users.includes(u.key));
+  const guard = envGuard(env, app);
   const plan = buildLoadPlan(catalog, guard, loadServices(env), settings.load.safetyFactor, { baseOnly: true });
   const runDir = path.join(dirs.runs, `${timestamp()}-${env.name}-smoke`);
   fs.mkdirSync(runDir, { recursive: true });
@@ -42,7 +44,8 @@ export async function smoke(env: EnvConfig, log: (m: string) => void): Promise<S
   const blockedWrites: SmokeResult["blockedWrites"] = [];
   let parsed;
   try {
-    const sessions = await ensureSessions(browser, env, users, 1800, log);
+    const sessions = await ensureSessions(browser, env, app, guard, users, 1800, log, { companies: catalogCompanies(catalog) });
+    assertTokensFor(plan, sessions);
     const tokensFile = writeK6Tokens(env.name, sessions);
     // Pace each service's single VU so it stays under that service's ceiling.
     const smokePace = Object.fromEntries(plan.services.map((s) => [s.name, Math.min(60, Math.max(0.25, Number.isFinite(s.cap) ? 1 / s.cap : 0.25))]));
@@ -55,14 +58,28 @@ export async function smoke(env: EnvConfig, log: (m: string) => void): Promise<S
       smokePace,
     }, log);
 
-    // Browser pass runs while k6 works through the API list.
-    const first = users[0]!;
-    const { context, blocked } = await newGuardedContext(browser, guard, sessions[first.key]!.storageStatePath);
+    // Browser pass runs while k6 works through the API list, as the first session (first user, first company).
+    const first = sessionList(sessions, users)[0]!;
+    const { context, blocked } = await newGuardedContext(browser, guard, first.storageStatePath);
     const pg = await context.newPage();
     const tracker = new RequestTracker(pg, { gatewayBaseUrls: env.gatewayBaseUrls, inspectBodies: false });
+    const visitOpts = {
+      quietMs: settings.browser.readyQuietMs,
+      timeoutMs: settings.browser.readyTimeoutMs,
+      busySelector: busySelector(app),
+      selectors: app.selectors,
+      log: () => {},
+    };
     for (const p of catalog.pages.filter((x) => x.reached)) {
-      const url = (p.urls.find((u) => u.user === first.key) ?? p.urls[0])!.url;
-      const [load] = await visitPage(pg, tracker, p.id, url, undefined, { quietMs: settings.browser.readyQuietMs, timeoutMs: settings.browser.readyTimeoutMs, log: () => {} });
+      const own = p.urls.find((u) => u.user === first.user && first.companies.includes(u.companyId));
+      // Another user's URL only works when the token isn't tied to a company.
+      const target = own ?? (app.tokenScope === "user" ? p.urls[0] : undefined);
+      if (!target) {
+        log(`  page ${p.id}: skipped (not discovered for ${first.key})`);
+        continue;
+      }
+      const url = target.url;
+      const [load] = await visitPage(pg, tracker, p.id, url, undefined, visitOpts);
       const failed = load!.calls.filter((c) => c.status === 0 || c.status >= 400);
       if (load!.error) pageFailures.push({ page: p.id, url, problem: load!.error });
       else if (load!.timedOut) pageFailures.push({ page: p.id, url, problem: `not ready after ${fmtMs(load!.readyMs)}: ${load!.busy}` });

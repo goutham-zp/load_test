@@ -220,6 +220,7 @@ function metaBlock(r: RunResults): string {
     ["Versions", `node ${m.versions.node} · ${m.versions.k6} · playwright ${m.versions.playwright}`],
     ["Steps", `${m.stepsPlanned.join(", ")} req/s × ${m.stepDurationSec}s`],
     ["Break rule", `error rate > ${fmtPct(m.breakRules.errorRate)} or p95 > ${fmtMs(m.breakRules.p95Ms)} (min ${m.breakRules.minRequests} requests)`],
+    ["App", m.app ?? "retailer"],
     ["Users / browsers", `${m.users} / ${m.browsers}`],
     ["Filters", Object.entries(m.filters).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join(", ") || "none"],
     ["Catalog", `${m.catalogCreatedAt} · ${m.catalogSignature.length} endpoints`],
@@ -239,7 +240,7 @@ export function renderRunReport(r: RunResults): string {
   const title = `Load test — ${r.meta.env}${r.meta.label ? " — " + r.meta.label : ""}`;
   const body = `
 <h1>${esc(title)}</h1>
-<p class="sub">${esc(r.meta.envKind)} deployment · ${esc(r.meta.startedAt.slice(0, 16).replace("T", " "))} UTC · read-only retailer load</p>
+<p class="sub">${esc(r.meta.envKind)} deployment · ${esc(r.meta.startedAt.slice(0, 16).replace("T", " "))} UTC · read-only load on the ${esc(r.meta.app ?? "retailer")} app</p>
 ${headline(r)}
 ${r.warnings.length ? `<h2>Warnings</h2><div class="card"><ul class="warn">${r.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>` : ""}
 <h2>Latency and errors by load step</h2>

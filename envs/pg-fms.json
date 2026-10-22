@@ -1,0 +1,14 @@
+{
+  "_comment": "FMS_UI on the Postgres deployment (kube-config-opm/ingress-preprod.yml: pg-fms-ui.app.fintech.com). STARTING POINT for Phase 3: the API hosts live in the ADO variable group fms-ui-postgres-preprod (REACT_APP_*_HOSTNAME), not in the repo. Run one headed discovery with 1 user and 1 company; it prints every API host the app called that is missing below. Add gateway hosts to gatewayBaseUrls; add hosts the app calls directly to gatewayBaseUrls AND hostServices (URL prefix -> service name in config/services.json). The login finds the token-exchange and companies hosts from the app's own calls (authApiBaseUrl / usersApiBaseUrl only override that). Users: LT_FMS_USER_<n>_EMAIL / _PASSWORD in .env (Auth0 users, MFA off; e.g. user1 a retailer, user2 a distributor). auth0Domain: the tenant the app redirects to (seen in a login probe).",
+  "name": "pg-fms",
+  "kind": "postgres",
+  "app": "fms",
+  "webBaseUrl": "https://uat-fms-ui.app.fintech.com",
+  "lang": "en",
+  "gatewayBaseUrls": [
+    "https://test-apis.app.fintech.com"
+  ],
+  "hostServices": {},
+  "userPrefix": "LT_FMS_USER_",
+  "auth0Domain": "https://fintech-auth-stg.us.auth0.com"
+}

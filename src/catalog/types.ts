@@ -87,9 +87,20 @@ export interface BlockedRequest {
   suggestedAllowlistEntry: { method: string; path: string; reviewed: false };
 }
 
+/** API-style calls seen on hosts outside the env's gatewayBaseUrls (not recorded, so not load tested). */
+export interface UntrackedHost {
+  origin: string;
+  count: number;
+  example: string;
+}
+
 export interface Catalog {
   version: 1;
   env: string;
+  /** The app the catalog was discovered from (absent in catalogs made before apps existed: "retailer"). */
+  app?: string;
+  /** "company": samples run with a per-company token, keyed user|companyId (absent: "user"). */
+  tokenScope?: "user" | "company";
   createdAt: string;
   webBaseUrl: string;
   gatewayBaseUrls: string[];
@@ -100,4 +111,5 @@ export interface Catalog {
   blocked: BlockedRequest[];
   /** Non-2xx responses seen during discovery, per endpoint key. */
   failures: { key: string; status: number; count: number }[];
+  untrackedHosts?: UntrackedHost[];
 }

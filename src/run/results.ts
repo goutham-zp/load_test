@@ -54,6 +54,8 @@ export interface RunMeta {
   tool: "dxp-loadtest";
   kind: "run";
   env: string;
+  /** The web app driven (absent in runs made before apps existed: "retailer"). */
+  app?: string;
   envKind: string;
   webBaseUrl: string;
   label?: string;

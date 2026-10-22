@@ -1,10 +1,13 @@
 import type { RouteMatcher } from "../gateway/routes.ts";
 import { endpointKey, templatePath } from "./normalize.ts";
 import { buildVariants, detectDimensions } from "./params.ts";
-import type { BlockedRequest, Catalog, CatalogEndpoint, CatalogPage, RecordedRequest, Sample } from "./types.ts";
+import { tokenKeyFor } from "../config/app.ts";
+import type { BlockedRequest, Catalog, CatalogEndpoint, CatalogPage, RecordedRequest, Sample, UntrackedHost } from "./types.ts";
 
 export interface BuildCatalogInput {
   env: string;
+  app: string;
+  tokenScope: "user" | "company";
   webBaseUrl: string;
   gatewayBaseUrls: string[];
   users: string[];
@@ -15,6 +18,7 @@ export interface BuildCatalogInput {
   maxSamplesPerUserPerEndpoint: number;
   maxVariantsPerEndpoint: number;
   searchTerms: string[];
+  untrackedHosts?: UntrackedHost[];
 }
 
 export function isSuccess(status: number): boolean {
@@ -33,6 +37,12 @@ export function resolveEndpoint(
   url: string
 ): { key: string; pathTemplate: string; service: string; servicePath?: string; matchedRoute: boolean } {
   const pathname = new URL(url).pathname;
+  // A host the env maps to a service directly: the key carries the service so equal paths on two hosts stay apart.
+  const direct = matcher.hostService(url);
+  if (direct) {
+    const pathTemplate = templatePath(pathname);
+    return { key: endpointKey(method, `[${direct}] ${pathTemplate}`), pathTemplate, service: direct, matchedRoute: true };
+  }
   const route = matcher.match(method, pathname);
   if (route) {
     return {
@@ -81,14 +91,16 @@ export function buildCatalog(input: BuildCatalogInput): Catalog {
     const ok = records.filter((r) => isSuccess(r.status));
     const samples: Sample[] = [];
     const seen = new Set<string>();
-    const perUser = new Map<string, number>();
+    // Samples are capped per token: per user, or per user and company when each company has its own token.
+    const perToken = new Map<string, number>();
     for (const r of ok) {
-      const id = `${r.user}|${r.url}|${r.body ?? ""}`;
+      const token = tokenKeyFor(input.tokenScope, r.user, r.companyId);
+      const id = `${token}|${r.url}|${r.body ?? ""}`;
       if (seen.has(id)) continue;
-      const n = perUser.get(r.user) ?? 0;
+      const n = perToken.get(token) ?? 0;
       if (n >= input.maxSamplesPerUserPerEndpoint) continue;
       seen.add(id);
-      perUser.set(r.user, n + 1);
+      perToken.set(token, n + 1);
       samples.push({ user: r.user, companyId: r.companyId, url: r.url, body: r.body, headers: r.headers });
     }
 
@@ -124,6 +136,8 @@ export function buildCatalog(input: BuildCatalogInput): Catalog {
   return {
     version: 1,
     env: input.env,
+    app: input.app,
+    tokenScope: input.tokenScope,
     createdAt: new Date().toISOString(),
     webBaseUrl: input.webBaseUrl,
     gatewayBaseUrls: input.gatewayBaseUrls,
@@ -132,6 +146,7 @@ export function buildCatalog(input: BuildCatalogInput): Catalog {
     pages,
     blocked: input.blocked,
     failures: failures.sort((a, b) => b.count - a.count),
+    untrackedHosts: input.untrackedHosts ?? [],
   };
 }
 
