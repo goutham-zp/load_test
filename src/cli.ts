@@ -164,7 +164,7 @@ async function main(): Promise<void> {
       for (const p of catalog.pages.filter((x) => !x.reached)) log(`    not reached: ${p.id} — ${p.note ?? ""}`);
       const unmatched = withSamples.filter((e) => !e.matchedRoute);
       if (unmatched.length) log(`  endpoints not in gateway config: ${unmatched.length} (grouped as unknown:*)`);
-      if (catalog.failures.length) log(`  non-2xx responses seen: ${catalog.failures.map((f) => `${f.key} ${f.status}×${f.count}`).slice(0, 10).join("; ")}`);
+      if (catalog.failures.length) log(`  non-2xx responses seen: ${catalog.failures.map((f) => `${f.key} ${f.status === 0 ? "no response " : f.status}×${f.count}`).slice(0, 10).join("; ")}`);
       for (const h of catalog.untrackedHosts ?? []) {
         log(`  API calls to a host not in gatewayBaseUrls (not recorded): ${h.origin}  ${h.count}× e.g. ${h.example}`);
       }

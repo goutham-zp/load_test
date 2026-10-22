@@ -23,6 +23,8 @@ export interface VisitOptions {
   timeoutMs: number;
   /** The app's loading indicators (busySelector(app)). */
   busySelector: string;
+  /** The app's loadSettleMs, applied to "load" steps. */
+  loadSettleMs?: number;
   selectors: AppSelectors;
   log: (msg: string) => void;
 }
@@ -44,12 +46,14 @@ export async function measureStep(
   } catch (e) {
     error = (e as Error).message.split("\n")[0];
   }
+  const actionDoneAt = Date.now();
   // A failed action (element missing, navigation error) changed nothing worth waiting for.
   const ready: ReadyResult = error
-    ? { readyMs: Date.now() - startedAt, timedOut: false }
-    : await waitForReady(page, tracker, startedAt, { quietMs: opts.quietMs, timeoutMs: opts.timeoutMs, busySelector: opts.busySelector });
-  // Give late finishers a moment to be logged, then collect this step's calls.
+    ? { readyMs: actionDoneAt - startedAt, timedOut: false }
+    : await waitForReady(page, tracker, startedAt, { quietMs: opts.quietMs, timeoutMs: opts.timeoutMs, busySelector: opts.busySelector, actionDoneAt, settleMs: interaction === "load" ? opts.loadSettleMs : undefined });
+  // Give late finishers a moment to be logged, then collect this step's calls (a timed-out step's open ones too).
   await page.waitForTimeout(50).catch(() => {});
+  if (ready.timedOut) tracker.closeUnfinished(stepId);
   return {
     page: pageId,
     interaction,

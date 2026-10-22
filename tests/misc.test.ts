@@ -2,10 +2,18 @@ import { describe, expect, it } from "vitest";
 import { companiesFromUserData, isUsersDataUrl } from "../src/browser/login.ts";
 import { decodeJwtExp, needsRefresh } from "../src/browser/session.ts";
 import { findTotalCount, replayHeaders } from "../src/browser/tracker.ts";
-import { isProdLikeHost } from "../src/config/safety.ts";
+import { hostsOutsideEnv, isProdLikeHost } from "../src/config/safety.ts";
 import type { PageConfig } from "../src/config/types.ts";
 import { orderPages, withParents } from "../src/discover/discover.ts";
 import { compileGuard, isReplayable } from "../src/guard/readonly.ts";
+
+describe("catalog hosts vs env", () => {
+  it("names hosts recorded against another deployment, so they are never replayed", () => {
+    const env = { webBaseUrl: "https://test-dxp.app.fintech.com", gatewayBaseUrls: ["https://test-apis.app.fintech.com", "https://test-dxp.app.fintech.com/api/"] };
+    expect(hostsOutsideEnv(["https://test-apis.app.fintech.com/fms/x", "https://test-dxp.app.fintech.com/en/retailer/1"], env)).toEqual([]);
+    expect(hostsOutsideEnv(["https://pg-apis.app.fintech.com/fms/x", "https://pg-dxp.app.fintech.com/en", "https://pg-apis.app.fintech.com/y"], env)).toEqual(["pg-apis.app.fintech.com", "pg-dxp.app.fintech.com"]);
+  });
+});
 
 describe("prod guard", () => {
   it("flags production-looking hosts only", () => {
@@ -17,6 +25,11 @@ describe("prod guard", () => {
     expect(isProdLikeHost("dxp.app.fintech.com")).toBe(true);
     expect(isProdLikeHost("prd-dxp.app.fintech.com")).toBe(true);
     expect(isProdLikeHost("apis.app.fintech.com")).toBe(true);
+    expect(isProdLikeHost("uatfms.fintech.com")).toBe(false);
+    expect(isProdLikeHost("devfms.fintech.com")).toBe(false);
+    expect(isProdLikeHost("fms.fintech.com")).toBe(true);
+    expect(isProdLikeHost("prdfms.fintech.com")).toBe(true);
+    expect(isProdLikeHost("uat.fintech.com")).toBe(false);
   });
 });
 

@@ -1,38 +1,221 @@
 {
   "_comment": "Non-GET requests that are really reads (search/report/list POSTs). The guard ignores entries until \"reviewed\": true. 'path' is a regex on the URL pathname. 'note' records the evidence: 'backend' = handler checked in ~/Documents/work/backends (MediatR query, no writes); 'frontend' = only the DXP.Web caller was checked (backend repo not available locally). Add more from catalogs/<env>/catalog.json 'blocked'. Known writes that must stay blocked: POST /fms/users/preferences (ManageUserPreference), PATCH /fms/tasks (updateTasks), POST /fms/v3/ap/location/ap-vendor/relationship (looks like a read but CreateDefaultApRelationship inserts a vendor-store row when missing), POST /fms/retailer/invoice/download-invoice (file export, not needed to render).",
   "entries": [
-    {"method": "POST", "path": "^/platform-engineering-internal/v1/features/enabled$", "note": "backend (ADO craft-services features.controller): evaluates and returns enabled flags only; app is unusable without it", "reviewed": true},
-    {"method": "POST", "path": "^/api/policies/checkaccess$", "note": "backend: DXP_Platform_Server policy.controller.checkaccess forwards to OPA for evaluation (no writes). Exact path only: POST /api/policies/ creates a policy", "reviewed": true},
-    {"method": "POST", "path": "^/fms/tasks$", "note": "backend: Tasks_API V2 TasksController.GetTasks -> TasksQuery (updates are PATCH, still blocked)", "reviewed": true},
-    {"method": "POST", "path": "^/fms/banks$", "note": "backend: Banking_API BankController.GetBankInformation -> BankInformationQuery", "reviewed": true},
-    {"method": "POST", "path": "^/fms/users/company$", "note": "backend: Users_API UsersController.GetUsers -> GetUsersQuery", "reviewed": true},
-    {"method": "POST", "path": "^/fms/company/list$", "note": "backend: Company_API CompaniesController.CompanyFamily -> GetCompanyFamilyQuery", "reviewed": true},
-    {"method": "POST", "path": "^/fms/v5/reports/invoices$", "note": "backend: Invoice_API V5 ReportsController.InvoiceReport", "reviewed": true},
-    {"method": "POST", "path": "^/fms/v4/reports/invoices$", "note": "invoice report search (v4); not seen yet", "reviewed": false},
-    {"method": "POST", "path": "^/fms/v3/reports/payment-activity$", "note": "backend: Invoice_API V3 ReportsController.PaymentActivity", "reviewed": true},
-    {"method": "POST", "path": "^/fms/v3/invoices/(weekly-count|average-spend|recent-payments|upcoming-payments|last-payments)$", "note": "backend: Invoice_API V3 ReportsController home tiles (cached via GetOrSetWithQueryAsync)", "reviewed": true},
-    {"method": "POST", "path": "^/fms/invoice/additional$", "note": "backend: Invoice_API V2 ReportsController.AdditionalReport", "reviewed": true},
-    {"method": "POST", "path": "^/fms/v3/retailers/vendors/(list|relationships)$", "note": "backend: Relationship_API V3 RetailersController.VendorsList / Relationships -> VendorListQuery / RetailerVendorRelationshipsQueryV3", "reviewed": true},
-    {"method": "POST", "path": "^/data-platform/v1/retailer/invoices/list$", "note": "backend: VP_Invoices_API RetailerController.GetInvoiceDetails -> InvoiceRetailerDetailsQueryV31 (OpenSearch); feeds the My Invoices grid", "reviewed": true},
-    {"method": "POST", "path": "^/fms/v3/invoice/invoice-details/(header|line-items)$", "note": "backend: Invoice_API V3 InvoiceController.GetInvoiceDetailGridHeader / LineItems -> InvoiceDetailGrid*Query", "reviewed": true},
-    {"method": "POST", "path": "^/fms/company/contacts$", "note": "backend: Contacts_API ContactsController.CompanyContacts -> CompanyContactsQuery -> proc fast.get_contacts (pg_preprod: no DML)", "reviewed": true},
-    {"method": "POST", "path": "^/fms/retailers/trading-partners$", "note": "backend: Relationship_API RetailersController.TradingPartners -> RetailerTradingPartnerQuery", "reviewed": true},
-    {"method": "POST", "path": "^/fms/v2\\.2/locations$", "note": "backend: Stores_API V2.2 RetailersController.Locations -> GetLocationByStoreQuery", "reviewed": true},
-    {"method": "POST", "path": "^/fms/retailer/scanned-invoices$", "note": "backend: AP_Api InvoiceScanningController.GetScannedDocuments (upload is a different path)", "reviewed": true},
-    {"method": "POST", "path": "^/fms/rpc/v[23]/product-catalog/catalog-feed$", "note": "backend: Retailer_Product_Catalog_API V3 ProductCatalogV3Controller.GetCatalogFeed / V2 ProductCatalogController.GetCatalogFeed -> CatalogFeedQuery (app falls back to v2 when v3 returns 404)", "reviewed": true},
-    {"method": "POST", "path": "^/fms/product-catalog/retailer/settings/grid$", "note": "backend: Retailer_Product_Catalog_API V2 ProductCatalogController.GetSettingsGrid -> SettingsGridQuery", "reviewed": true},
-    {"method": "POST", "path": "^/fms/v2\\.1/subscription$", "note": "backend: Billing_API SubscriptionsController.Subscriptions -> GetPlans", "reviewed": true},
-    {"method": "POST", "path": "^/fms/contacts/list/invite$", "note": "backend: Contacts_API ContactsController.ContactsToInvite -> ContactsForInvitingQuery -> proc pkg_portal_contacts.get_contacts_for_inviting (pg_preprod: no DML)", "reviewed": true},
-    {"method": "POST", "path": "^/fms/v2/auditlog/search$", "note": "frontend: auditServices.searchAuditLogs; BLOCKED: backend repo for dev-audit-api unknown", "reviewed": false},
-    {"method": "POST", "path": "^/data-platform/retailer/insights$", "note": "backend: data-insights-api-node retailer.router POST / -> getReport (Druid reads; no Mongo on this path)", "reviewed": true},
-    {"method": "POST", "path": "^/data-platform/v1/invoices/vendorslist$", "note": "backend: data-relationship-api V1 VendorController.GetVendorListRelationships -> GetVendorListQuery -> VendorReadRepository.GetVendorListUsingRetailerId (no Mongo writes)", "reviewed": true},
-    {"method": "POST", "path": "^/data-platform/v1/vendor/relationships$", "note": "backend: data-relationship-api V1 VendorController.GetRelationships -> GetRelationshipsQuery -> VendorReadRepository.GetVendorPagedData (no Mongo writes)", "reviewed": true},
-    {"method": "POST", "path": "^/data-platform/v1/locations/list$", "note": "frontend: locationServices locations list; BLOCKED: no route in local api_gateway config", "reviewed": false},
-    {"method": "POST", "path": "^/data-platform/v1/productcatalog/(filterCategory|settings)$", "note": "backend: data-productcatalog-api ProductCatalogController.retailerId/Filter -> GetCategoryGlCodeFromCatalogQuery; ProductCatalogSettingsController.product-catalog/settings -> GetProductCatalogSettingsQuery", "reviewed": true},
-    {"method": "POST", "path": "^/data-platform/v1/productcatalogsettings/categoryandglcode$", "note": "backend: data-productcatalog-api ProductCatalogSettingsController.GetProductCategoriesGlCodes -> GetProductCategoriesGlCodesQuery", "reviewed": true},
-    {"method": "POST", "path": "^/data-platform/v1/retailerCatalog$", "note": "backend: data-productcatalog-api ProductCatalogController.product-catalog/retailer -> GetRetailerCatalogQuery (RetailerCatalogReadRepository)", "reviewed": true},
-    {"method": "POST", "path": "/distributors/search$", "note": "distributor search; not seen yet", "reviewed": false},
-    {"method": "POST", "path": "/contacts/list$", "note": "contacts list; not seen yet", "reviewed": false},
-    {"method": "POST", "path": "/vendor/list$", "note": "vendor list; not seen yet", "reviewed": false}
+    {
+      "method": "POST",
+      "path": "^/platform-engineering-internal/v1/features/enabled$",
+      "note": "backend (ADO craft-services features.controller): evaluates and returns enabled flags only; app is unusable without it",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/api/policies/checkaccess$",
+      "note": "backend: DXP_Platform_Server policy.controller.checkaccess forwards to OPA for evaluation (no writes). Exact path only: POST /api/policies/ creates a policy",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/tasks$",
+      "note": "backend: Tasks_API V2 TasksController.GetTasks -> TasksQuery (updates are PATCH, still blocked)",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/banks$",
+      "note": "backend: Banking_API BankController.GetBankInformation -> BankInformationQuery",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/users/company$",
+      "note": "backend: Users_API UsersController.GetUsers -> GetUsersQuery",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/company/list$",
+      "note": "backend: Company_API CompaniesController.CompanyFamily -> GetCompanyFamilyQuery",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v5/reports/invoices$",
+      "note": "backend: Invoice_API V5 ReportsController.InvoiceReport",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v4/reports/invoices$",
+      "note": "invoice report search (v4); not seen yet",
+      "reviewed": false
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v3/reports/payment-activity$",
+      "note": "backend: Invoice_API V3 ReportsController.PaymentActivity",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v3/invoices/(weekly-count|average-spend|recent-payments|upcoming-payments|last-payments)$",
+      "note": "backend: Invoice_API V3 ReportsController home tiles (cached via GetOrSetWithQueryAsync)",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/invoice/additional$",
+      "note": "backend: Invoice_API V2 ReportsController.AdditionalReport",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v3/retailers/vendors/(list|relationships)$",
+      "note": "backend: Relationship_API V3 RetailersController.VendorsList / Relationships -> VendorListQuery / RetailerVendorRelationshipsQueryV3",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/data-platform/v1/retailer/invoices/list$",
+      "note": "backend: VP_Invoices_API RetailerController.GetInvoiceDetails -> InvoiceRetailerDetailsQueryV31 (OpenSearch); feeds the My Invoices grid",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v3/invoice/invoice-details/(header|line-items)$",
+      "note": "backend: Invoice_API V3 InvoiceController.GetInvoiceDetailGridHeader / LineItems -> InvoiceDetailGrid*Query",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/company/contacts$",
+      "note": "backend: Contacts_API ContactsController.CompanyContacts -> CompanyContactsQuery -> proc fast.get_contacts (pg_preprod: no DML)",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/retailers/trading-partners$",
+      "note": "backend: Relationship_API RetailersController.TradingPartners -> RetailerTradingPartnerQuery",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v2\\.2/locations$",
+      "note": "backend: Stores_API V2.2 RetailersController.Locations -> GetLocationByStoreQuery",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/retailer/scanned-invoices$",
+      "note": "backend: AP_Api InvoiceScanningController.GetScannedDocuments (upload is a different path)",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/rpc/v[23]/product-catalog/catalog-feed$",
+      "note": "backend: Retailer_Product_Catalog_API V3 ProductCatalogV3Controller.GetCatalogFeed / V2 ProductCatalogController.GetCatalogFeed -> CatalogFeedQuery (app falls back to v2 when v3 returns 404)",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/product-catalog/retailer/settings/grid$",
+      "note": "backend: Retailer_Product_Catalog_API V2 ProductCatalogController.GetSettingsGrid -> SettingsGridQuery",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v2\\.1/subscription$",
+      "note": "backend: Billing_API SubscriptionsController.Subscriptions -> GetPlans",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/contacts/list/invite$",
+      "note": "backend: Contacts_API ContactsController.ContactsToInvite -> ContactsForInvitingQuery -> proc pkg_portal_contacts.get_contacts_for_inviting (pg_preprod: no DML)",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v2/auditlog/search$",
+      "note": "frontend: auditServices.searchAuditLogs; BLOCKED: backend repo for dev-audit-api unknown",
+      "reviewed": false
+    },
+    {
+      "method": "POST",
+      "path": "^/data-platform/retailer/insights$",
+      "note": "backend: data-insights-api-node retailer.router POST / -> getReport (Druid reads; no Mongo on this path)",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/data-platform/v1/invoices/vendorslist$",
+      "note": "backend: data-relationship-api V1 VendorController.GetVendorListRelationships -> GetVendorListQuery -> VendorReadRepository.GetVendorListUsingRetailerId (no Mongo writes)",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/data-platform/v1/vendor/relationships$",
+      "note": "backend: data-relationship-api V1 VendorController.GetRelationships -> GetRelationshipsQuery -> VendorReadRepository.GetVendorPagedData (no Mongo writes)",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/data-platform/v1/locations/list$",
+      "note": "frontend: locationServices locations list; BLOCKED: no route in local api_gateway config",
+      "reviewed": false
+    },
+    {
+      "method": "POST",
+      "path": "^/data-platform/v1/productcatalog/(filterCategory|settings)$",
+      "note": "backend: data-productcatalog-api ProductCatalogController.retailerId/Filter -> GetCategoryGlCodeFromCatalogQuery; ProductCatalogSettingsController.product-catalog/settings -> GetProductCatalogSettingsQuery",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/data-platform/v1/productcatalogsettings/categoryandglcode$",
+      "note": "backend: data-productcatalog-api ProductCatalogSettingsController.GetProductCategoriesGlCodes -> GetProductCategoriesGlCodesQuery",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/data-platform/v1/retailerCatalog$",
+      "note": "backend: data-productcatalog-api ProductCatalogController.product-catalog/retailer -> GetRetailerCatalogQuery (RetailerCatalogReadRepository)",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "/distributors/search$",
+      "note": "distributor search; not seen yet",
+      "reviewed": false
+    },
+    {
+      "method": "POST",
+      "path": "/contacts/list$",
+      "note": "contacts list; not seen yet",
+      "reviewed": false
+    },
+    {
+      "method": "POST",
+      "path": "/vendor/list$",
+      "note": "vendor list; not seen yet",
+      "reviewed": false
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/service/v1/invoices/distributor/summary$",
+      "note": "FMS_UI invoice-summary (distributor). backend: FMS_API InvoiceController.GetDistributorInvoiceSummaryData -> DistributorInvoiceSummaryHandler -> InvoiceService.GetDistributorInvoiceSummaryData -> pkg_fms_invoice_summary.get_dist_invoice_summary / get_dist_invoice_summ_parent (pg_uat: no DML, no nested calls). Reviewed 2026-10-22.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/data-platform/v1\\.3/fms/invoicesummary$",
+      "note": "FMS_UI invoice-summary (retailer). backend: VP_Invoices_API v3.3 InvoicesController.GetRetailerInvoiceSummary -> GetRetailerInvoiceSummaryQueryV33 -> InvoiceService.GetInvoiceSummaryFromOpenSearch (OpenSearch Search + _invoiceReadRepo.GetVendorTypes). Reviewed 2026-10-22.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v1/relationships/distributors/locations/potential$",
+      "note": "FMS_UI distributor dashboard. NOT a pure read: RelationshipService.GetDistributorPotentialRelationshipsList -> ZipCodeLookupService fills missing zip codes from the external API Ninjas and SaveChangesAsync inserts them. Keep blocked.",
+      "reviewed": false
+    }
   ]
 }

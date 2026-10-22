@@ -206,6 +206,7 @@ export async function loginUsersDataUser(browser: Browser, env: EnvConfig, app: 
       companies,
       storageStatePath,
       loggedInAt: new Date().toISOString(),
+      webBaseUrl: env.webBaseUrl,
     };
     log(`${user.key}: logged in, ${companies.length} compan${companies.length === 1 ? "y" : "ies"}, token expires ${expiry(session.exp)}`);
     return session;
@@ -284,6 +285,21 @@ export function siblingApiUrl(url: string, fromPath: string, toPath: string): st
   return undefined;
 }
 
+/** The value at a dot path ("result.companyType") in parsed JSON, or undefined. */
+export function fieldAt(data: unknown, dotPath: string): unknown {
+  let cur: unknown = data;
+  for (const key of dotPath.split(".")) {
+    if (cur === null || typeof cur !== "object") return undefined;
+    cur = (cur as Record<string, unknown>)[key];
+  }
+  return cur;
+}
+
+/** The exchange body: the profile's extra fields, then the app's own call's fields, with this token and company. */
+export function exchangeBody(login: Pick<CompanyExchangeLogin, "exchangeExtraBody">, appBody: Record<string, unknown> | undefined, token: string, wwwLogin: string): Record<string, unknown> {
+  return { ...(login.exchangeExtraBody ?? {}), ...(appBody ?? {}), token, wwwLogin };
+}
+
 /** Runs a page call, once more after the page settles if an app-side navigation destroyed its context. */
 async function inPage<T>(page: Page, call: () => Promise<T>): Promise<T> {
   try {
@@ -314,16 +330,22 @@ export async function loginCompanyUser(
   const page = await context.newPage();
   let listed: AuthCompany[] = [];
   let companiesUrl: string | undefined;
-  let exchange: { url: string; login?: string } | undefined;
+  // The app's own exchange call: its URL, the company it chose and its body (fields such as requestedBy), which the
+  // exchanges below repeat with only the token and company changed.
+  let exchange: { url: string; login?: string; body?: Record<string, unknown> } | undefined;
   page.on("request", (req) => {
     if (!isApiPath(new URL(req.url()).pathname, login.exchangePath)) return;
-    let wwwLogin: string | undefined;
+    let body: Record<string, unknown> | undefined;
     try {
-      wwwLogin = (JSON.parse(req.postData() ?? "{}") as { wwwLogin?: string }).wwwLogin;
+      body = JSON.parse(req.postData() ?? "{}") as Record<string, unknown>;
     } catch {
       // Not JSON: the URL is still useful.
     }
-    exchange = { url: req.url(), login: wwwLogin };
+    exchange = { url: req.url(), login: typeof body?.wwwLogin === "string" ? body.wwwLogin : undefined, body };
+  });
+  let companyInfoUrl: string | undefined;
+  page.on("request", (req) => {
+    if (login.companyInfoPath && req.method() === "GET" && isApiPath(new URL(req.url()).pathname, login.companyInfoPath)) companyInfoUrl = req.url();
   });
   page.on("response", async (res) => {
     if (!isApiPath(new URL(res.url()).pathname, login.companiesPath)) return;
@@ -388,11 +410,16 @@ export async function loginCompanyUser(
     const sessions: UserSession[] = [];
     for (const company of chosen) {
       const r = await inPage(page, async () => page.evaluate(
-        async ({ url, token, wwwLogin, accessHeader, refreshHeader }) => {
-          const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, wwwLogin }) });
+        async ({ url, body, accessHeader, refreshHeader }) => {
+          const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
           return { status: res.status, access: res.headers.get(accessHeader), refresh: res.headers.get(refreshHeader) };
         },
-        { url: exchangeUrl, token: auth0Token, wwwLogin: company.login, accessHeader: login.accessTokenHeader, refreshHeader: login.refreshTokenHeader }
+        {
+          url: exchangeUrl,
+          body: exchangeBody(login, exchange?.body, auth0Token, company.login),
+          accessHeader: login.accessTokenHeader,
+          refreshHeader: login.refreshTokenHeader,
+        }
       ));
       if (!r.access) {
         log(`${user.key}: company ${company.name ?? company.login}: token exchange gave HTTP ${r.status} and no ${login.accessTokenHeader}; skipped`);
@@ -405,7 +432,21 @@ export async function loginCompanyUser(
         { values: { [app.tokenKey]: r.access!, [login.refreshTokenKey]: r.refresh ?? "", ...(login.extraStorage ?? {}) } }
       ));
       const storageStatePath = await saveState(context, env.name, `${user.key}__${slug(company.id)}.state.json`);
-      const claim = login.companyTypeClaim ? decodeJwtPayload(r.access)?.[login.companyTypeClaim] : undefined;
+      let claim = login.companyTypeClaim ? decodeJwtPayload(r.access)?.[login.companyTypeClaim] : undefined;
+      if (claim === undefined && login.companyInfoPath && login.companyTypeField) {
+        // The app asks for the company right after its exchange; give that call a moment to show up.
+        for (let i = 0; i < 20 && !companyInfoUrl; i++) await page.waitForTimeout(250);
+        if (companyInfoUrl) {
+          const info = await inPage(page, () => page.evaluate(
+            async ({ url, token }) => {
+              const res = await fetch(url, { headers: { accept: "application/json", authorization: `Bearer ${token}` } });
+              return res.ok ? ((await res.json()) as unknown) : undefined;
+            },
+            { url: companyInfoUrl!, token: r.access! }
+          )).catch(() => undefined);
+          claim = fieldAt(info, login.companyTypeField);
+        }
+      }
       const session: UserSession = {
         key: `${user.key}|${company.id}`,
         user: user.key,
@@ -417,6 +458,7 @@ export async function loginCompanyUser(
         companiesAvailable: listed.length,
         storageStatePath,
         loggedInAt: new Date().toISOString(),
+        webBaseUrl: env.webBaseUrl,
       };
       sessions.push(session);
       log(`${user.key}: company ${company.name ?? company.login} (${company.id})${session.companyType ? ` [${session.companyType}]` : ""}, token expires ${expiry(session.exp)}`);

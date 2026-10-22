@@ -73,7 +73,8 @@ export function selectEndpoints(catalog: Catalog, guard: CompiledGuard, f: PlanF
     if (f.onlyEndpoint && !e.key.toLowerCase().includes(f.onlyEndpoint.toLowerCase())) continue;
     if (f.onlyService && e.service !== f.onlyService) continue;
     if (e.samples.length === 0) {
-      excluded.push({ key: e.key, reason: "no successful sample during discovery" });
+      const seen = catalog.failures.filter((x) => x.key === e.key).map((x) => (x.status === 0 ? "no response" : `HTTP ${x.status}`));
+      excluded.push({ key: e.key, reason: `no successful sample during discovery${seen.length ? ` (${[...new Set(seen)].join(", ")})` : ""}` });
       continue;
     }
     if (!isReplayable(guard, e.method, e.samples[0]!.url)) {

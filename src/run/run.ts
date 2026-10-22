@@ -8,7 +8,7 @@ import { ensureSessions, sessionsOf, writeK6Tokens, type UserSession } from "../
 import { catalogSignature } from "../catalog/build.ts";
 import type { Catalog } from "../catalog/types.ts";
 import { loadApp, loadInteractions, loadServices, loadSettings, loadUsers, readJson, writeJson } from "../config/load.ts";
-import { envHosts } from "../config/safety.ts";
+import { envHosts, hostsOutsideEnv } from "../config/safety.ts";
 import type { AppProfile, EnvConfig } from "../config/types.ts";
 import { envMatcher } from "../gateway/routes.ts";
 import { envGuard } from "../guard/readonly.ts";
@@ -34,13 +34,25 @@ export interface RunOptions {
   log: (m: string) => void;
 }
 
-export function loadCatalog(envName: string, app?: AppProfile): Catalog {
-  const file = path.join(catalogDir(envName), "catalog.json");
-  if (!fs.existsSync(file)) throw new Error(`No catalog for "${envName}". Run: npm run lt -- discover --env ${envName}`);
+export function loadCatalog(env: Pick<EnvConfig, "name" | "webBaseUrl" | "gatewayBaseUrls">, app?: AppProfile): Catalog {
+  const file = path.join(catalogDir(env.name), "catalog.json");
+  if (!fs.existsSync(file)) throw new Error(`No catalog for "${env.name}". Run: npm run lt -- discover --env ${env.name}`);
   const catalog = readJson<Catalog>(file);
   const made = catalog.app ?? "retailer";
-  if (app && made !== app.name) throw new Error(`The ${envName} catalog was discovered for app "${made}", but the env is now app "${app.name}". Run discover again.`);
+  if (app && made !== app.name) throw new Error(`The ${env.name} catalog was discovered for app "${made}", but the env is now app "${app.name}". Run discover again.`);
+  const outside = hostsOutsideEnv(catalogUrls(catalog), env);
+  if (outside.length) {
+    throw new Error(
+      `The ${env.name} catalog would send requests to ${outside.join(", ")}, which envs/${env.name}.json doesn't name: it was ` +
+        `discovered against another deployment. Run discover again for this env, or keep one env name per deployment.`
+    );
+  }
   return catalog;
+}
+
+/** Every URL a catalog replays or visits: endpoint samples and page URLs. */
+export function catalogUrls(catalog: Pick<Catalog, "endpoints" | "pages">): string[] {
+  return [...catalog.endpoints.flatMap((e) => e.samples.map((s) => s.url)), ...catalog.pages.flatMap((p) => p.urls.map((u) => u.url))];
 }
 
 /** Company-token apps: the companies each user's samples use, so logins cover exactly what will be replayed. */
@@ -85,7 +97,7 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
   const { env, log } = opts;
   const settings = loadSettings();
   const app = loadApp(env);
-  const catalog = loadCatalog(env.name, app);
+  const catalog = loadCatalog(env, app);
   const users = loadUsers(env).filter((u) => catalog.users.includes(u.key));
   if (users.length === 0) throw new Error("None of the catalog's users are configured in .env.");
   const guard = envGuard(env, app);

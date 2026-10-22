@@ -11,6 +11,7 @@ import { pagePathRegex, templatePath } from "../catalog/normalize.ts";
 import type { BlockedRequest, Catalog, CatalogPage, RecordedRequest, UntrackedHost } from "../catalog/types.ts";
 import { busySelector, pagePathFromUrl, pageUrl } from "../config/app.ts";
 import { loadApp, loadInteractions, loadPages, loadSettings, loadUsers, writeJson } from "../config/load.ts";
+import { hostsOutsideEnv } from "../config/safety.ts";
 import type { AppProfile, EnvConfig, PageConfig } from "../config/types.ts";
 import { envMatcher } from "../gateway/routes.ts";
 import { envGuard } from "../guard/readonly.ts";
@@ -90,6 +91,7 @@ export async function discover(opts: DiscoverOptions): Promise<DiscoverResult> {
     quietMs: settings.browser.readyQuietMs,
     timeoutMs: settings.discovery.navigationTimeoutMs,
     busySelector: busySelector(app),
+    loadSettleMs: app.loadSettleMs,
     selectors: app.selectors,
     log: (m: string) => log(`    ${m}`),
   };
@@ -222,7 +224,12 @@ export async function discover(opts: DiscoverOptions): Promise<DiscoverResult> {
   };
   // A run limited by --users / --pages only replaces what it visited; anything else keeps its earlier recording.
   const partial = !opts.replace && Boolean(opts.onlyUsers || opts.onlyPages);
-  const previous = partial ? loadRecording(dir) : undefined;
+  let previous = partial ? loadRecording(dir) : undefined;
+  const elsewhere = previous ? hostsOutsideEnv([...previous.recorded.map((r) => r.url), ...previous.pages.flatMap((p) => p.urls.map((u) => u.url))], env) : [];
+  if (elsewhere.length) {
+    log(`The earlier recording was made against ${elsewhere.join(", ")}, not this env's hosts: this run replaces the catalog instead of merging.`);
+    previous = undefined;
+  }
   if (partial && !previous && fs.existsSync(path.join(dir, "catalog.json"))) {
     log(`No ${RECORDING_FILE} from an earlier discovery to merge into (made before v0.1.8): this run replaces the catalog.`);
   }
@@ -233,7 +240,8 @@ export async function discover(opts: DiscoverOptions): Promise<DiscoverResult> {
     env: env.name,
     app: app.name,
     tokenScope: app.tokenScope,
-    untrackedHosts: final.untrackedHosts,
+    // A host added to gatewayBaseUrls since an earlier (merged) run is tracked now.
+    untrackedHosts: final.untrackedHosts?.filter((h) => !env.gatewayBaseUrls.some((base) => base.startsWith(h.origin))),
     webBaseUrl: env.webBaseUrl,
     gatewayBaseUrls: env.gatewayBaseUrls,
     users: final.users,

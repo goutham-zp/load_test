@@ -64,10 +64,19 @@ export interface CompanyExchangeLogin {
   refreshTokenHeader: string;
   /** localStorage key for the refresh token. */
   refreshTokenKey: string;
+  /** Extra fields the exchange body needs besides token and wwwLogin (the app's own call, when seen, wins). */
+  exchangeExtraBody?: Record<string, unknown>;
   /** Extra localStorage values the app sets after a company is chosen. */
   extraStorage?: Record<string, string>;
   /** JWT claim of the company token naming the company type (matched against pages' companyTypes). */
   companyTypeClaim?: string;
+  /**
+   * When the token has no such claim: the GET the app makes after its exchange to learn the company (path in the
+   * direct /api/... form, matched like the other paths) and the dot path of the type in its JSON. The tool repeats
+   * the app's call with each company token.
+   */
+  companyInfoPath?: string;
+  companyTypeField?: string;
   /**
    * The app's company picker button. When the exchange URL is unknown (no authApiBaseUrl, the app didn't call it), the
    * first one is clicked so the app makes the exchange call itself and the URL can be read from it.
@@ -91,6 +100,12 @@ export interface AppProfile {
   login: UsersDataLogin | CompanyExchangeLogin;
   /** Loading indicators: a page is busy while any is visible (in any frame). */
   busySelectors: string[];
+  /**
+   * A page load is not ready sooner than this after the load event, for apps that wait before their first API call
+   * (FMS_UI fetches feature flags from a host that isn't load tested first). Only the wait grows: ready time is still
+   * the last activity. Default: no minimum.
+   */
+  loadSettleMs?: number;
   selectors: AppSelectors;
   /** Non-GET calls the app makes to log in or refresh its token: let through the guard, never recorded or replayed. */
   authCalls?: { method: string; path: string }[];

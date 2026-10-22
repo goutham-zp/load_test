@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { chooseCompanies, companiesFromAuthList, isApiPath, siblingApiUrl } from "../src/browser/login.ts";
+import { chooseCompanies, companiesFromAuthList, exchangeBody, fieldAt, isApiPath, siblingApiUrl } from "../src/browser/login.ts";
 import { companySessionsUsable, type UserSession } from "../src/browser/session.ts";
 import { buildCatalog, resolveEndpoint } from "../src/catalog/build.ts";
 import type { CatalogEndpoint, RecordedRequest } from "../src/catalog/types.ts";
@@ -79,6 +79,18 @@ describe("company-token login helpers", () => {
     expect(siblingApiUrl("https://gw/fms/v1/auth2/auth0Validation", "/api/v1/auth2/auth0Validation", "/api/users/v1/usersauth/companies")).toBe("https://gw/fms/users/v1/usersauth/companies");
     expect(siblingApiUrl("https://auth/api/v1/auth2/auth0Validation", "/api/v1/auth2/auth0Validation", "/api/users/v1/usersauth/companies")).toBe("https://auth/api/users/v1/usersauth/companies");
     expect(siblingApiUrl("https://gw/other", "/api/v1/auth2/auth0Validation", "/x")).toBeUndefined();
+  });
+
+  it("repeat the app's exchange body with only the token and company changed", () => {
+    expect(exchangeBody(fms.login as { exchangeExtraBody?: Record<string, unknown> }, undefined, "t", "c1")).toEqual({ requestedBy: 3, token: "t", wwwLogin: "c1" });
+    expect(exchangeBody({}, { token: "old", wwwLogin: "c0", requestedBy: 7, extra: true }, "t", "c1")).toEqual({ requestedBy: 7, extra: true, token: "t", wwwLogin: "c1" });
+  });
+
+  it("read the company type from the app's company call when the token has no claim", () => {
+    expect(fieldAt({ result: { companyType: "Distributor", ftsId: 8152 } }, "result.companyType")).toBe("Distributor");
+    expect(fieldAt({ result: null }, "result.companyType")).toBeUndefined();
+    expect(fieldAt(undefined, "result.companyType")).toBeUndefined();
+    expect(isApiPath("/fms/service/v1.1/configuration/redirect", "/api/v1.1/configuration/redirect")).toBe(true);
   });
 
   it("re-logs in only when a company session is missing, expiring or not wanted yet", () => {

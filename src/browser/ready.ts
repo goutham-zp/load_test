@@ -40,23 +40,25 @@ export async function describeBusy(page: Page, tracker: RequestTracker, busySele
 }
 
 /**
- * "Page ready" = no gateway API call in flight and no visible loading indicator, held for quietMs.
+ * "Page ready" = no gateway API call in flight and no visible loading indicator, held for quietMs after the action
+ * finished (actionDoneAt, e.g. the load event): a page that hasn't started its API calls yet is not ready.
  * Ready time is the moment the page last became quiet, measured from startedAt.
  */
 export async function waitForReady(
   page: Page,
   tracker: RequestTracker,
   startedAt: number,
-  opts: { quietMs: number; timeoutMs: number; busySelector: string }
+  opts: { quietMs: number; timeoutMs: number; busySelector: string; actionDoneAt?: number; settleMs?: number }
 ): Promise<ReadyResult> {
-  let lastBusyAt = startedAt;
+  let lastBusyAt = opts.actionDoneAt ?? startedAt;
   for (;;) {
     const now = Date.now();
     if (now - startedAt > opts.timeoutMs) return { readyMs: now - startedAt, timedOut: true, busy: await describeBusy(page, tracker, opts.busySelector) };
     const busy = tracker.inflight > 0 || (await visibleBusyCount(page, opts.busySelector)) > 0;
     if (busy) lastBusyAt = Date.now();
     const quietSince = Math.max(lastBusyAt, tracker.lastActivity, startedAt);
-    if (!busy && Date.now() - quietSince >= opts.quietMs) {
+    const settled = Date.now() - (opts.actionDoneAt ?? startedAt) >= (opts.settleMs ?? 0);
+    if (!busy && settled && Date.now() - quietSince >= opts.quietMs) {
       return { readyMs: quietSince - startedAt, timedOut: false };
     }
     await page.waitForTimeout(100);

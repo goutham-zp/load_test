@@ -7,7 +7,9 @@ export interface TrackedCall {
   url: string;
   body?: string;
   headers: Record<string, string>;
+  /** 0 when there was no response (failed, or still open when its step timed out). */
   status: number;
+  /** For a call still open at the step's timeout: the time it had been waiting (a lower bound). */
   durationMs: number;
   totalCount?: number;
 }
@@ -85,6 +87,15 @@ export class RequestTracker {
     page.on("request", (req) => this.onRequest(req));
     page.on("requestfinished", (req) => void this.onFinished(req));
     page.on("requestfailed", (req) => this.onFailed(req));
+    // The old document keeps running until the new one arrives, and calls it starts in that gap are cancelled
+    // without events too, so forget everything again once the new document's response is in.
+    page.on("response", (res) => {
+      const req = res.request();
+      if (req.isNavigationRequest() && this.isMainFrame(req)) {
+        this.started.clear();
+        this.inflight = 0;
+      }
+    });
   }
 
   private isMainFrame(req: Request): boolean {
@@ -179,6 +190,28 @@ export class RequestTracker {
       durationMs: end - s.at,
       totalCount,
     });
+  }
+
+  /**
+   * Calls of a timed-out step that are still open are logged as "no response" with the time waited so far, so a hung
+   * API shows up in the reports and the catalog instead of vanishing when the next page cancels it.
+   */
+  closeUnfinished(stepId: number): void {
+    const now = Date.now();
+    for (const [req, s] of [...this.started]) {
+      if (s.stepId !== stepId) continue;
+      this.started.delete(req);
+      this.inflight = Math.max(0, this.inflight - 1);
+      this.calls.push({
+        stepId,
+        method: req.method(),
+        url: req.url(),
+        body: req.postData() ?? undefined,
+        headers: replayHeaders(s.headers),
+        status: 0,
+        durationMs: now - s.at,
+      });
+    }
   }
 
   private onFailed(req: Request): void {

@@ -94,6 +94,7 @@ export class BrowserLayer {
       quietMs: this.settings.browser.readyQuietMs,
       timeoutMs: this.settings.browser.readyTimeoutMs,
       busySelector: busySelector(this.app),
+      loadSettleMs: this.app.loadSettleMs,
       selectors: this.app.selectors,
       log: () => {},
     };

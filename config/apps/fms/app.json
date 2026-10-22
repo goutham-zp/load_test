@@ -14,14 +14,18 @@
     "accessTokenHeader": "x_access_token",
     "refreshTokenHeader": "x_refresh_token",
     "refreshTokenKey": "refresh_token",
+    "exchangeExtraBody": { "requestedBy": 3 },
     "extraStorage": { "auth0Handled": "true", "isAuth0User": "true" },
     "companyTypeClaim": "companyType",
+    "companyInfoPath": "/api/v1.1/configuration/redirect",
+    "companyTypeField": "result.companyType",
     "pickerSelector": "[data-testid=\"active-companies-list\"] .continue-btn"
   },
   "authCalls": [
     { "method": "POST", "path": "/v1/auth2/(auth0Validation|refresh)$" },
     { "method": "POST", "path": "/v1/users/authPortal$" }
   ],
+  "loadSettleMs": 3000,
   "busySelectors": [
     ".react-loading-skeleton",
     ".spinner-border",

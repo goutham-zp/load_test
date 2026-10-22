@@ -25,6 +25,8 @@ export interface UserSession {
   companiesAvailable?: number;
   storageStatePath: string;
   loggedInAt: string;
+  /** The env's web host at login. A session from another deployment (the env file was repointed) is never reused. */
+  webBaseUrl?: string;
 }
 
 export function sessionsFile(envName: string): string {
@@ -94,6 +96,10 @@ export async function ensureSessions(
   let changed = false;
   for (const user of users) {
     const have = sessionsOf(sessions, user.key);
+    if (have.some((s) => s.webBaseUrl !== env.webBaseUrl)) {
+      for (const s of have) delete sessions[s.key];
+      have.length = 0;
+    }
     if (app.tokenScope === "user") {
       const s = have[0];
       if (s && !needsRefresh(s, horizonSec) && fs.existsSync(s.storageStatePath)) continue;

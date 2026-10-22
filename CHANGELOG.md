@@ -45,6 +45,31 @@ FMS_UI support (company tokens) next to the DXP.Web retailer portal.
 - **`scripts/clone-gateway-config.sh`:** clones or updates the 4 API gateway config repos the tool reads (`fms`,
   `data-platform`, `fintech-platforms`, `platform-engineering-internal`; not the `-opm`/`-demo` copies) with a PAT,
   shallow, without storing the PAT anywhere. For headless servers.
+- **Catalogs and sessions are tied to the env's hosts.** `smoke` and `run` refuse a catalog whose requests or pages
+  go to hosts the env file doesn't name (an env file repointed to another deployment would otherwise replay the old
+  deployment, past the production check). A partial `discover` replaces such a catalog instead of merging into it.
+  Saved logins remember the web host and are not reused after the env points elsewhere.
+- **Production check knows glued names:** a host whose first label starts with an environment (`uatfms`, `devfms`)
+  is treated like `uat-fms`; `prdfms`/`prodfms` still count as production, and plain `fms` stays production-like.
+- **FMS exchange body:** the login repeats the app's own exchange body (FMS_UI sends `requestedBy: 3`; without it the
+  exchange answers 400), changing only the token and company. `exchangeExtraBody` in the profile covers the case where
+  the app's call isn't seen.
+- **FMS company type:** FMS company tokens carry no type claim. The login repeats the app's own company call
+  (`companyInfoPath`, `/configuration/redirect`) with each company token and reads `companyTypeField`
+  (`result.companyType`), so pages' `companyTypes` filtering works.
+- **Ready check waits for the app to start.** Quiet is measured from the end of the action (the load event), not the
+  start of the step, and an app can set `loadSettleMs` (FMS: 3000) as the minimum wait after a page load: FMS_UI waits
+  over a second for feature flags before its first API call, so pages were declared ready with 0 calls and their calls
+  leaked into the next page. In-flight calls are also forgotten when a new document's response arrives (the old page
+  keeps running until then). Ready times are unchanged in meaning: the last activity.
+- **FMS allowlist:** `invoices/distributor/summary` and `v1.3/fms/invoicesummary` approved as reads (handlers and
+  procedures read); `relationships/distributors/locations/potential` stays blocked (fills a zip-code table from an
+  external API). `envs/pg-fms.json` adds the directly called `uat-stagedinvoice-api` host.
+- **Hung calls are reported.** A call still open when its step times out is now recorded as "no response" with the time
+  waited (before, the next page cancelled it and it vanished). It shows in `discovery.html` (red), in the catalog's
+  failures and the discover summary, and in the run report's "endpoints not loaded" with the reason
+  `no successful sample during discovery (no response)`; in load runs the browser layer's page breakdown names it.
+  A host added to `gatewayBaseUrls` is no longer listed as untracked from an older merged recording.
 
 ## 0.1.8 — 2026-10-21
 

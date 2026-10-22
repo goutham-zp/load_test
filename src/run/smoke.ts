@@ -29,7 +29,7 @@ export interface SmokeResult {
 export async function smoke(env: EnvConfig, log: (m: string) => void): Promise<SmokeResult> {
   const settings = loadSettings();
   const app = loadApp(env);
-  const catalog = loadCatalog(env.name, app);
+  const catalog = loadCatalog(env, app);
   const users = loadUsers(env).filter((u) => catalog.users.includes(u.key));
   const guard = envGuard(env, app);
   const plan = buildLoadPlan(catalog, guard, loadServices(env), settings.load.safetyFactor, { baseOnly: true });
@@ -67,6 +67,7 @@ export async function smoke(env: EnvConfig, log: (m: string) => void): Promise<S
       quietMs: settings.browser.readyQuietMs,
       timeoutMs: settings.browser.readyTimeoutMs,
       busySelector: busySelector(app),
+      loadSettleMs: app.loadSettleMs,
       selectors: app.selectors,
       log: () => {},
     };
