@@ -9,7 +9,7 @@ import { catalogSignature } from "../catalog/build.ts";
 import type { Catalog } from "../catalog/types.ts";
 import { loadApp, loadInteractions, loadServices, loadSettings, loadUsers, readJson, writeJson } from "../config/load.ts";
 import { envHosts, hostsOutsideEnv } from "../config/safety.ts";
-import type { AppProfile, EnvConfig } from "../config/types.ts";
+import type { AppProfile, EnvConfig, User } from "../config/types.ts";
 import { envMatcher } from "../gateway/routes.ts";
 import { envGuard } from "../guard/readonly.ts";
 import { parseK6Output, startK6, writePlanFile, type K6Handle } from "../load/k6runner.ts";
@@ -55,6 +55,21 @@ export function catalogUrls(catalog: Pick<Catalog, "endpoints" | "pages">): stri
   return [...catalog.endpoints.flatMap((e) => e.samples.map((s) => s.url)), ...catalog.pages.flatMap((p) => p.urls.map((u) => u.url))];
 }
 
+/**
+ * The .env users the catalog was recorded with. Fails before logging in when one has no credentials here (e.g. a
+ * catalog copied to another machine whose .env has fewer users).
+ */
+export function catalogUsers(env: Pick<EnvConfig, "userPrefix">, catalog: Pick<Catalog, "users">): User[] {
+  const users = loadUsers(env);
+  const missing = catalog.users.filter((k) => !users.some((u) => u.key === k));
+  if (missing.length) {
+    const prefix = env.userPrefix ?? "LT_USER_";
+    const vars = missing.map((k) => `${prefix}${k.replace(/^user/, "")}_EMAIL / _PASSWORD`).join(", ");
+    throw new Error(`The catalog was recorded with ${missing.join(", ")}, but .env on this machine has no credentials for them (${vars}). Add them, or run discover again with the users this .env has.`);
+  }
+  return users.filter((u) => catalog.users.includes(u.key));
+}
+
 /** Company-token apps: the companies each user's samples use, so logins cover exactly what will be replayed. */
 export function catalogCompanies(catalog: Catalog): Record<string, string[]> | undefined {
   if (catalog.tokenScope !== "company") return undefined;
@@ -98,7 +113,7 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
   const settings = loadSettings();
   const app = loadApp(env);
   const catalog = loadCatalog(env, app);
-  const users = loadUsers(env).filter((u) => catalog.users.includes(u.key));
+  const users = catalogUsers(env, catalog);
   if (users.length === 0) throw new Error("None of the catalog's users are configured in .env.");
   const guard = envGuard(env, app);
   const services = loadServices(env);

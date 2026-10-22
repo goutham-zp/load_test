@@ -5,6 +5,7 @@ import { findTotalCount, replayHeaders } from "../src/browser/tracker.ts";
 import { hostsOutsideEnv, isProdLikeHost } from "../src/config/safety.ts";
 import type { PageConfig } from "../src/config/types.ts";
 import { orderPages, withParents } from "../src/discover/discover.ts";
+import { catalogUsers } from "../src/run/run.ts";
 import { compileGuard, isReplayable } from "../src/guard/readonly.ts";
 
 describe("catalog hosts vs env", () => {
@@ -12,6 +13,16 @@ describe("catalog hosts vs env", () => {
     const env = { webBaseUrl: "https://test-dxp.app.fintech.com", gatewayBaseUrls: ["https://test-apis.app.fintech.com", "https://test-dxp.app.fintech.com/api/"] };
     expect(hostsOutsideEnv(["https://test-apis.app.fintech.com/fms/x", "https://test-dxp.app.fintech.com/en/retailer/1"], env)).toEqual([]);
     expect(hostsOutsideEnv(["https://pg-apis.app.fintech.com/fms/x", "https://pg-dxp.app.fintech.com/en", "https://pg-apis.app.fintech.com/y"], env)).toEqual(["pg-apis.app.fintech.com", "pg-dxp.app.fintech.com"]);
+  });
+});
+
+describe("catalog users vs .env", () => {
+  it("names the users the catalog needs but this machine's .env lacks", () => {
+    const prefix = "LT_TESTONLY_";
+    process.env[`${prefix}1_EMAIL`] = "a@x";
+    process.env[`${prefix}1_PASSWORD`] = "pw";
+    expect(catalogUsers({ userPrefix: prefix }, { users: ["user1"] }).map((u) => u.key)).toEqual(["user1"]);
+    expect(() => catalogUsers({ userPrefix: prefix }, { users: ["user1", "user2", "user3"] })).toThrow(/user2, user3.*LT_TESTONLY_2_EMAIL/);
   });
 });
 

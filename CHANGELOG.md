@@ -75,6 +75,10 @@ FMS_UI support (company tokens) next to the DXP.Web retailer portal.
   `retailers/relationships/pending`, `billing plan-card-features`, `productcatalogsettings/getcategorybyglcode` and
   `contacts/list`. Still blocked: SignalR negotiate, `users/preferences`, `auditlog/search`, `ap-vendor/relationship`.
 - Discovery no longer lists the app's own web host as an untracked API host (Next.js page-data fetches).
+- `smoke` / `run` stop before logging in when the catalog's users have no credentials in this machine's `.env`
+  (a catalog copied to a server whose `.env` has fewer users), naming the missing `LT_USER_<n>` variables. Before,
+  only the found users logged in and the error blamed lost company access.
+- `smoke.json` lists each failing page's failed API calls (method, URL, status), not just a count.
 
 ## 0.1.8 — 2026-10-21
 

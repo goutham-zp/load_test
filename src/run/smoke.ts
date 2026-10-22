@@ -6,7 +6,7 @@ import { ensureSessions, writeK6Tokens } from "../browser/session.ts";
 import { RequestTracker } from "../browser/tracker.ts";
 import { visitPage } from "../browser/visit.ts";
 import { busySelector } from "../config/app.ts";
-import { loadApp, loadServices, loadSettings, loadUsers, writeJson } from "../config/load.ts";
+import { loadApp, loadServices, loadSettings, writeJson } from "../config/load.ts";
 import type { EnvConfig } from "../config/types.ts";
 import { envGuard } from "../guard/readonly.ts";
 import { parseK6Output, startK6, writePlanFile } from "../load/k6runner.ts";
@@ -14,13 +14,14 @@ import { buildLoadPlan } from "../load/plan.ts";
 import { dirs } from "../paths.ts";
 import { esc, fmtMs, page } from "../report/html.ts";
 import { timestamp } from "../util.ts";
-import { assertTokensFor, catalogCompanies, loadCatalog, sessionList } from "./run.ts";
+import { assertTokensFor, catalogCompanies, catalogUsers, loadCatalog, sessionList } from "./run.ts";
 
 export interface SmokeResult {
   passed: boolean;
   runDir: string;
   endpointFailures: { key: string; service: string; n: number; ok: number; errors: number; clientErrors: number; throttled: number }[];
-  pageFailures: { page: string; url: string; problem: string }[];
+  /** calls: the page's failed API calls (status 0 = no response or cancelled by the app). */
+  pageFailures: { page: string; url: string; problem: string; calls?: { method: string; url: string; status: number }[] }[];
   blockedWrites: { method: string; url: string }[];
   refused: number;
 }
@@ -30,7 +31,7 @@ export async function smoke(env: EnvConfig, log: (m: string) => void): Promise<S
   const settings = loadSettings();
   const app = loadApp(env);
   const catalog = loadCatalog(env, app);
-  const users = loadUsers(env).filter((u) => catalog.users.includes(u.key));
+  const users = catalogUsers(env, catalog);
   const guard = envGuard(env, app);
   const plan = buildLoadPlan(catalog, guard, loadServices(env), settings.load.safetyFactor, { baseOnly: true });
   const runDir = path.join(dirs.runs, `${timestamp()}-${env.name}-smoke`);
@@ -84,7 +85,14 @@ export async function smoke(env: EnvConfig, log: (m: string) => void): Promise<S
       const failed = load!.calls.filter((c) => c.status === 0 || c.status >= 400);
       if (load!.error) pageFailures.push({ page: p.id, url, problem: load!.error });
       else if (load!.timedOut) pageFailures.push({ page: p.id, url, problem: `not ready after ${fmtMs(load!.readyMs)}: ${load!.busy}` });
-      else if (failed.length) pageFailures.push({ page: p.id, url, problem: `${failed.length} API calls failed (${[...new Set(failed.map((f) => f.status))].join(", ")})` });
+      else if (failed.length) {
+        pageFailures.push({
+          page: p.id,
+          url,
+          problem: `${failed.length} API calls failed (${[...new Set(failed.map((f) => f.status))].join(", ")})`,
+          calls: failed.map((f) => ({ method: f.method, url: f.url, status: f.status })),
+        });
+      }
       log(`  page ${p.id}: ${load!.error ? "ERROR" : load!.timedOut ? "TIMEOUT" : fmtMs(load!.readyMs)}`);
       tracker.calls.length = 0;
     }
