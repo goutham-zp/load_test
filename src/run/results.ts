@@ -40,9 +40,13 @@ export interface StepRecord {
   windowSec: number;
   overall: Stats;
   services: StepServiceRecord[];
-  endpoints: { key: string; service: string; stats: Stats }[];
+  /** failures: why calls failed, e.g. {"HTTP 503": 2, "Timed out (no response)": 5}. Absent in old results. */
+  endpoints: { key: string; service: string; stats: Stats; failures?: Record<string, number> }[];
   variants: { key: string; service: string; variant: string; stats: Stats }[];
   pages: PageAgg[];
+  /** Users mode: pages opened per page id. Estimated from the calls for runs made before it was counted. */
+  visits?: Record<string, number>;
+  visitsEstimated?: boolean;
   runner: RunnerHealth;
   refused: number;
   blockedWrites: number;
@@ -72,6 +76,8 @@ export interface RunMeta {
   thinkTimeSec?: number;
   sessionsPerUser?: number;
   stepDurationSec: number;
+  /** k6 gives up on a call after this long (absent in old results). */
+  requestTimeoutSec?: number;
   browsers: number;
   users: number;
   stopAtFirstBreak: boolean;

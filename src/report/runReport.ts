@@ -1,6 +1,5 @@
 import type { RunResults, StepRecord } from "../run/results.ts";
-import { fmtRate } from "../util.ts";
-import { badge, esc, fmtMs, fmtNum, fmtPct, lineChart, numTd, page, sparkline, th } from "./html.ts";
+import { esc, fmtCount, fmtMs, fmtNum, fmtPct, numTd, page, th } from "./html.ts";
 
 /** Step targets are req/s, or virtual users in users mode. */
 export function usersMode(r: Pick<RunResults, "meta">): boolean {
@@ -11,267 +10,233 @@ export function targetText(r: Pick<RunResults, "meta">, target: number): string 
   return usersMode(r) ? `${target} users` : `${target} req/s`;
 }
 
-export function stepLabel(s: Pick<StepRecord, "index" | "targetRps">, users = false): string {
-  return users ? `S${s.index + 1} · ${s.targetRps} users` : `S${s.index + 1} · ${s.targetRps}/s`;
+/**
+ * The first step where the load went up by half or more but the requests handled per second barely moved
+ * (under 20% more): the app was already at its throughput ceiling and extra load only queued.
+ */
+export function throughputCeiling(r: Pick<RunResults, "steps">): { step: number; rps: number } | undefined {
+  for (let i = 1; i < r.steps.length; i++) {
+    const prev = r.steps[i - 1]!;
+    const cur = r.steps[i]!;
+    if (prev.overall.rps > 0 && cur.targetRps >= prev.targetRps * 1.5 && cur.overall.rps < prev.overall.rps * 1.2) {
+      return { step: i, rps: Math.max(prev.overall.rps, cur.overall.rps) };
+    }
+  }
+  return undefined;
 }
 
-/** The step tables open on: the last healthy step before the system broke, else the last step. */
-export function defaultStep(r: RunResults): number {
-  if (!r.steps.length) return 0;
-  if (r.systemBreak) return Math.max(0, r.systemBreak.step - 1);
-  return r.steps[r.steps.length - 1]!.index;
+/** The step the API list opens on: where the system broke, else the heaviest step run. */
+export function focusStep(r: RunResults): StepRecord | undefined {
+  return r.steps.find((s) => s.index === r.systemBreak?.step) ?? r.steps[r.steps.length - 1];
 }
 
-function stepSelect(r: RunResults, group: string, selected: number): string {
-  const opts = r.steps
-    .map((s) => `<option value="${s.index}"${s.index === selected ? " selected" : ""}>Step ${s.index + 1} — ${usersMode(r) ? `${s.targetRps} virtual users` : `target ${s.targetRps} req/s`}${r.systemBreak?.step === s.index ? " (system broke)" : ""}</option>`)
-    .join("");
-  return `<label>Load step <select data-step-target="${group}">${opts}</select></label>`;
+function breakRuleText(r: RunResults): string {
+  const b = r.meta.breakRules;
+  return `p95 over ${fmtMs(b.p95Ms)} or more than ${fmtPct(b.errorRate)} errors`;
 }
 
-function endLabel(reason: string): string {
-  if (reason.startsWith("emergency")) return "Emergency stop";
-  if (reason.startsWith("interrupted")) return "Interrupted";
-  if (reason.startsWith("k6 produced") || reason.startsWith("failed")) return "Failed";
-  if (reason.startsWith("stopped at first break")) return "At first break";
-  if (reason.startsWith("every service")) return "Ceilings reached";
-  if (reason.startsWith("no service left")) return "Nothing left to load";
-  return "Completed";
+/** Which break limits a step crossed: from the services that broke in it, else from the step's own numbers. */
+export function stepProblems(r: RunResults, s: StepRecord): { slow: boolean; errors: boolean } {
+  const reasons = s.services.flatMap((x) => x.broke ?? []);
+  return {
+    slow: reasons.includes("p95") || s.overall.p95 > r.meta.breakRules.p95Ms,
+    errors: reasons.includes("error-rate") || s.overall.errorRate > r.meta.breakRules.errorRate,
+  };
 }
 
-function headline(r: RunResults): string {
-  const peak = r.steps.reduce((m, s) => Math.max(m, s.overall.rps), 0);
-  const broken = r.services.filter((s) => s.status === "broken").length;
-  const capped = r.services.filter((s) => s.status === "capped").length;
+function problemText(p: { slow: boolean; errors: boolean }): string {
+  return p.slow && p.errors ? "too slow and too many errors" : p.slow ? "too slow" : p.errors ? "too many errors" : "";
+}
+
+/** e.g. "too slow: p95 32.3 s (limit 10.0 s); no calls failed". */
+function brokeWhy(r: RunResults, s: StepRecord): string {
+  const p = stepProblems(r, s);
+  const b = r.meta.breakRules;
+  const p95 = `p95 ${fmtMs(s.overall.p95)} (limit ${fmtMs(b.p95Ms)})`;
+  const errors = `${fmtPct(s.overall.errorRate)} errors (limit ${fmtPct(b.errorRate)})`;
+  const detail = p.slow && p.errors ? `${p95}, ${errors}` : p.slow ? `${p95}${s.overall.errors === 0 ? "; no calls failed" : ""}` : errors;
+  return `${problemText(p)}: ${detail}`;
+}
+
+function verdict(r: RunResults): string {
   const sb = r.systemBreak;
-  const tiles = [
-    {
-      label: "System breaking point",
-      value: sb ? `Step ${sb.step + 1} · ${targetText(r, sb.targetRps)}` : "Not reached",
-      note: sb ? `First to break: ${sb.services.join(", ")}` : "No service broke within the steps run",
-    },
-    { label: "Services broke / at ceiling", value: `${broken} / ${capped}`, note: `of ${r.services.length} services loaded` },
-    { label: "Peak achieved rate", value: `${fmtNum(peak)} req/s`, note: `${r.steps.length} of ${r.meta.stepsPlanned.length} steps run` },
-    { label: "Run ended", value: endLabel(r.meta.endReason), note: r.meta.endReason },
-  ];
-  return `<div class="tiles">${tiles
-    .map((t) => `<div class="card tile"><div class="label">${esc(t.label)}</div><div class="value">${esc(t.value)}</div><div class="note">${esc(t.note)}</div></div>`)
-    .join("")}</div>`;
+  const lines: string[] = [];
+  const brokeIdx = sb ? r.steps.findIndex((s) => s.index === sb.step) : -1;
+  if (!r.steps.length) {
+    lines.push("No load step completed.");
+  } else if (sb && brokeIdx === 0) {
+    lines.push(`It broke at the first step, <strong>${esc(targetText(r, sb.targetRps))}</strong>, ${esc(brokeWhy(r, r.steps[0]!))}. Run lower steps to find the load it handles well.`);
+  } else if (sb) {
+    lines.push(`It handled <strong>${esc(targetText(r, r.steps[brokeIdx - 1]!.targetRps))}</strong> and broke at <strong>${esc(targetText(r, sb.targetRps))}</strong>, ${esc(brokeWhy(r, r.steps[brokeIdx]!))}.`);
+  } else {
+    lines.push(`No break: it handled every step up to <strong>${esc(targetText(r, r.steps[r.steps.length - 1]!.targetRps))}</strong>.`);
+  }
+  const ceiling = throughputCeiling(r);
+  if (ceiling) {
+    const a = r.steps[ceiling.step - 1]!;
+    const b = r.steps[ceiling.step]!;
+    lines.push(
+      `Throughput stopped growing at about <strong>${fmtNum(ceiling.rps)} req/s</strong>: going from ${esc(targetText(r, a.targetRps))} to ${esc(targetText(r, b.targetRps))} only made responses slower (p95 ${fmtMs(a.overall.p95)} → ${fmtMs(b.overall.p95)}).`,
+    );
+  }
+  const cpu = Math.max(0, ...r.steps.map((s) => s.runner.cpuMax));
+  if (cpu >= 85) lines.push(`<span class="worse">The load machine's CPU reached ${cpu}%, so the machine may have limited the load, not the app.</span>`);
+  return `<div class="card verdict">${lines.map((l) => `<p>${l}</p>`).join("")}</div>`;
 }
 
-function charts(r: RunResults): string {
-  const labels = r.steps.map((s) => stepLabel(s, usersMode(r)));
-  const markers = r.systemBreak ? [{ index: r.steps.findIndex((s) => s.index === r.systemBreak!.step), label: "system broke" }] : [];
-  return `<div class="charts">
-${lineChart({
-  title: "p95 latency per step (all API requests)",
-  labels,
-  series: [{ name: "p95", color: "--series-1", values: r.steps.map((s) => s.overall.p95), fmt: fmtMs }],
-  yFmt: fmtMs,
-  markers,
-})}
-${lineChart({
-  title: "Error rate per step (5xx, timeouts; 429 excluded)",
-  labels,
-  series: [{ name: "error rate", color: "--series-1", values: r.steps.map((s) => s.overall.errorRate), fmt: fmtPct }],
-  yFmt: fmtPct,
-  markers,
-})}
-${lineChart({
-  title: "Planned vs achieved request rate",
-  labels,
-  series: [
-    { name: "planned req/s", color: "--series-1", values: r.steps.map((s) => s.services.reduce((a, x) => a + x.plannedRps, 0)), fmt: (v) => `${fmtNum(v)} req/s` },
-    { name: "achieved req/s", color: "--series-2", values: r.steps.map((s) => s.overall.rps), fmt: (v) => `${fmtNum(v)} req/s` },
-  ],
-  yFmt: (v) => fmtNum(v),
-})}
-</div>`;
-}
-
-function servicesTable(r: RunResults): string {
-  const labels = r.steps.map((s) => stepLabel(s, usersMode(r)));
-  const rows = r.plan.services
-    .map((svc) => {
-      const st = r.services.find((s) => s.name === svc.name);
-      const per = r.steps.map((s) => s.services.find((x) => x.name === svc.name));
-      const p95s = per.map((x) => (x && x.stats.n ? x.stats.p95 : null));
-      const errs = per.map((x) => (x && x.stats.n ? x.stats.errorRate : null));
-      const breakPos = st?.brokeAtStep !== undefined ? r.steps.findIndex((s) => s.index === st.brokeAtStep) : undefined;
-      const throttled = per.reduce((a, x) => a + (x?.stats.throttled ?? 0), 0);
-      const totalN = per.reduce((a, x) => a + (x?.stats.n ?? 0), 0);
-      let status = badge("healthy");
-      let order = 2;
-      if (st?.status === "broken") {
-        status = badge("broken", `Broke at step ${st.brokeAtStep! + 1} (${(st.reasons ?? []).join(", ")})`);
-        order = 0;
-      } else if (st?.status === "capped") {
-        status = badge("capped", "At ceiling, no break");
-        order = 1;
-      } else if (st?.lastHealthyRate === undefined) {
-        status = badge("insufficient");
-        order = 3;
-      }
+function stepsTable(r: RunResults): string {
+  const showThrottled = r.steps.some((s) => s.overall.throttled > 0);
+  const rows = r.steps
+    .map((s) => {
+      const broke = s.services.filter((x) => x.broke).length;
+      // Services that broke in an earlier step aren't flagged again, so the step's own numbers count too.
+      const why = problemText(stepProblems(r, s));
+      const what = why.charAt(0).toUpperCase() + why.slice(1);
+      const result = s.emergency
+        ? `<span class="worse">Emergency stop</span>`
+        : broke
+          ? `<span class="worse">✕ ${esc(what)}: ${broke} service(s) broke</span>`
+          : why
+            ? `<span class="worse">✕ ${esc(what)}</span>`
+            : `<span class="better">✓ OK</span>`;
       return `<tr>
-<td class="mono wide">${esc(svc.name)}${svc.repoPath ? `<div class="muted">${esc(svc.repoPath)}</div>` : ""}</td>
-<td data-v="${order}">${status}</td>
-${numTd(st?.brokeAtRate, st?.brokeAtRate !== undefined ? fmtRate(st.brokeAtRate) : "–")}
-${numTd(st?.lastHealthyRate, st?.lastHealthyRate !== undefined ? fmtRate(st.lastHealthyRate) : "–")}
-${numTd(svc.cap ?? Infinity, svc.cap === null ? "unlimited" : fmtRate(svc.cap) + (svc.limitsVerified ? "" : " *"))}
-${numTd(svc.endpoints, String(svc.endpoints))}
-${numTd(totalN, fmtNum(totalN))}
-${numTd(throttled, fmtNum(throttled), throttled ? "worse" : "")}
-<td class="nosort">${sparkline(p95s, fmtMs, labels, breakPos)}</td>
-<td class="nosort">${sparkline(errs, fmtPct, labels, breakPos)}</td>
+${numTd(s.targetRps, String(s.targetRps))}
+${usersMode(r) ? numTd(visitsOf(s), visitsOf(s) === undefined ? "–" : fmtCount(visitsOf(s))) : ""}
+${numTd(s.overall.n, fmtCount(s.overall.n))}
+${numTd(s.overall.rps, fmtNum(s.overall.rps))}
+${numTd(s.overall.p50, fmtMs(s.overall.p50))}
+${numTd(s.overall.p95, fmtMs(s.overall.p95), s.overall.p95 > r.meta.breakRules.p95Ms ? "worse" : "")}
+${numTd(s.overall.errorRate, fmtPct(s.overall.errorRate), s.overall.errorRate > r.meta.breakRules.errorRate ? "worse" : "")}
+${showThrottled ? numTd(s.overall.throttled, fmtCount(s.overall.throttled), s.overall.throttled ? "worse" : "") : ""}
+<td>${result}</td>
 </tr>`;
     })
     .join("");
-  return `<div class="table-wrap"><table class="sortable"><thead><tr>
-${th("Service")}${th("Status")}${th("Broke at (req/s)", "num")}${th("Last healthy (req/s)", "num")}${th("Ceiling (req/s)", "num")}${th("Endpoints", "num")}${th("Requests", "num")}${th("429s", "num")}${th("p95 by step", "nosort")}${th("Errors by step", "nosort")}
+  const cpu = Math.max(0, ...r.steps.map((s) => s.runner.cpuMax));
+  return `<div class="table-wrap"><table><thead><tr>
+${th(usersMode(r) ? "Users" : "Target req/s", "num nosort")}${usersMode(r) ? th("Page visits", "num nosort") : ""}${th("Calls made", "num nosort")}${th("Req/s served", "num nosort")}${th("p50", "num nosort")}${th("p95", "num nosort")}${th("Errors", "num nosort")}${showThrottled ? th("Rate-limited (429)", "num nosort") : ""}${th("Result", "nosort")}
 </tr></thead><tbody>${rows}</tbody></table></div>
-<p class="muted">Ceiling = rate limit × users (per-token limits) × pods × safety factor ${r.meta.safetyFactor}. * = limit not verified from appsettings.</p>`;
+<p class="muted">A service breaks when its p95 goes over ${fmtMs(r.meta.breakRules.p95Ms)} or more than ${fmtPct(r.meta.breakRules.errorRate)} of its calls fail, so a step can break with no errors at all. Each step ran ${r.meta.stepDurationSec}s. Errors = 5xx and calls with no response${r.meta.requestTimeoutSec ? ` (given up after ${r.meta.requestTimeoutSec}s)` : ""}; 4xx are not counted. Load machine CPU peaked at ${cpu}%.</p>`;
 }
 
-function endpointsTable(r: RunResults, selected: number): string {
-  const bodies = r.steps
+function visitsOf(s: StepRecord): number | undefined {
+  return s.visits ? Object.values(s.visits).reduce((a, b) => a + b, 0) : undefined;
+}
+
+/** Pages that call the API with how often each was opened in the step; long lists are cut to keep rows short. */
+function pagesCell(pages: string[], visits: Record<string, number> | undefined): string {
+  if (!pages.length) return `<td class="muted">–</td>`;
+  // Most-visited first, so the pages that produced the calls are the ones shown.
+  const sorted = visits ? [...pages].sort((a, b) => (visits[b] ?? 0) - (visits[a] ?? 0)) : pages;
+  const label = (p: string) => (visits ? `${esc(p)} <span class="muted">×${visits[p] ?? 0}</span>` : esc(p));
+  const shown = sorted.slice(0, 3).map(label).join("<br>");
+  const rest = sorted.slice(3);
+  const more = rest.length ? `<br><span class="muted" title="${esc(rest.map((p) => (visits ? `${p} ×${visits[p] ?? 0}` : p)).join(", "))}">+${rest.length} more</span>` : "";
+  return `<td class="mono">${shown}${more}</td>`;
+}
+
+function reasonText(r: RunResults, reason: string): string {
+  return reason === "Timed out (no response)" && r.meta.requestTimeoutSec ? `Timed out (no response in ${r.meta.requestTimeoutSec}s)` : reason;
+}
+
+/** Why the calls failed, most common first. Old results without reasons fall back to the status classes. */
+function failures(r: RunResults, e: StepRecord["endpoints"][number]): [string, number][] {
+  if (e.failures) return Object.entries(e.failures).sort((a, b) => b[1] - a[1]).map(([k, n]) => [reasonText(r, k), n]);
+  const out: [string, number][] = [];
+  if (e.stats.errors) out.push(["5xx or timed out", e.stats.errors]);
+  if (e.stats.clientErrors) out.push(["4xx", e.stats.clientErrors]);
+  if (e.stats.throttled) out.push(["HTTP 429 (rate limited)", e.stats.throttled]);
+  return out;
+}
+
+function apiTable(r: RunResults, selected: number): string {
+  const groups = r.steps
     .map((s) => {
       const rows = [...s.endpoints]
         .sort((a, b) => b.stats.p95 - a.stats.p95)
         .map((e) => {
           const meta = r.endpointsMeta[e.key];
-          const variants = s.variants.filter((v) => v.key === e.key && v.variant !== "base").sort((a, b) => b.stats.p95 - a.stats.p95);
-          const base = s.variants.find((v) => v.key === e.key && v.variant === "base");
-          const variantBlock = variants.length
-            ? `<details><summary>${variants.length} parameter variants (slowest: ${esc(variants[0]!.variant)} ${fmtMs(variants[0]!.stats.p95)})</summary><table><thead><tr><th class="nosort">Variant</th><th class="num nosort">n</th><th class="num nosort">p50</th><th class="num nosort">p95</th><th class="num nosort">Errors</th></tr></thead><tbody>${[
-                ...(base ? [base] : []),
-                ...variants,
-              ]
-                .map((v) => `<tr><td class="mono">${esc(v.variant)}</td><td class="num">${v.stats.n}</td><td class="num">${fmtMs(v.stats.p50)}</td><td class="num">${fmtMs(v.stats.p95)}</td><td class="num">${fmtPct(v.stats.errorRate)}</td></tr>`)
-                .join("")}</tbody></table></details>`
-            : "";
+          const x = e.stats;
+          const why = failures(r, e);
+          const failed = why.reduce((a, [, n]) => a + n, 0);
           return `<tr>
-<td class="mono wide">${esc(e.key)}${meta?.servicePath ? `<div class="muted">→ ${esc(meta.servicePath)}</div>` : ""}${variantBlock}</td>
-<td class="mono">${esc(e.service)}</td>
-<td>${esc((meta?.pages ?? []).join(", "))}</td>
-${numTd(e.stats.n, String(e.stats.n))}
-${numTd(e.stats.p50, fmtMs(e.stats.p50))}
-${numTd(e.stats.p95, fmtMs(e.stats.p95))}
-${numTd(e.stats.p99, fmtMs(e.stats.p99))}
-${numTd(e.stats.errorRate, fmtPct(e.stats.errorRate), e.stats.errorRate > r.meta.breakRules.errorRate ? "worse" : "")}
-${numTd(e.stats.throttled, String(e.stats.throttled))}
-${numTd(e.stats.clientErrors, String(e.stats.clientErrors))}
+<td class="mono wide">${esc(e.key)}<div class="muted">${esc(e.service)}</div></td>
+${pagesCell(meta?.pages ?? [], s.visits)}
+${numTd(x.n, fmtCount(x.n))}
+${numTd(x.mean, fmtMs(x.mean))}
+${numTd(x.p50, fmtMs(x.p50))}
+${numTd(x.p95, fmtMs(x.p95), x.p95 > r.meta.breakRules.p95Ms ? "worse" : "")}
+${numTd(x.max, fmtMs(x.max))}
+${numTd(failed, failed ? `${fmtCount(failed)} <span class="muted">(${fmtPct(failed / (x.n || 1))})</span>` : "0", failed ? "worse" : "")}
+<td>${why.map(([k, n]) => `${fmtCount(n)} × ${esc(k)}`).join("<br>")}</td>
 </tr>`;
         })
         .join("");
-      return `<tbody data-step-group="endpoints" data-step="${s.index}" data-filter-group="endpoints" ${s.index === selected ? "" : "hidden"}>${rows}</tbody>`;
+      return `<tbody data-step-group="api" data-step="${s.index}" ${s.index === selected ? "" : "hidden"}>${rows}</tbody>`;
     })
     .join("");
-  return `<div class="controls">${stepSelect(r, "endpoints", selected)}<input type="search" placeholder="Filter endpoints" aria-label="Filter endpoints" data-filter-target="endpoints"></div>
-<div class="table-wrap"><table class="sortable"><thead><tr>
-${th("Endpoint (gateway → service path)")}${th("Service")}${th("Pages")}${th("n", "num")}${th("p50", "num")}${th("p95", "num")}${th("p99", "num")}${th("Errors", "num")}${th("429", "num")}${th("4xx", "num")}
-</tr></thead>${bodies}</table></div>`;
-}
-
-function pagesTable(r: RunResults, selected: number): string {
-  const any = r.steps.some((s) => s.pages.length);
-  if (!any) return `<p class="muted">No browser measurements (browsers = ${r.meta.browsers}).</p>`;
-  const bodies = r.steps
+  const totals = r.steps
     .map((s) => {
-      const rows = s.pages
-        .map((p) => `<tr>
-<td>${esc(p.page)}</td>
-<td class="mono">${esc(p.interaction)}</td>
-${numTd(p.n, String(p.n))}
-${numTd(p.p50, fmtMs(p.p50))}
-${numTd(p.p95, fmtMs(p.p95))}
-${numTd(p.max, fmtMs(p.max))}
-${numTd(p.lcpP95, fmtMs(p.lcpP95))}
-${numTd(p.timeouts, String(p.timeouts), p.timeouts ? "worse" : "")}
-<td class="mono">${p.topEndpoints.slice(0, 3).map((t) => `${esc(t.key)} <span class="muted">${fmtMs(t.p95)}</span>`).join("<br>")}</td>
-</tr>`)
-        .join("");
-      return `<tbody data-step-group="pages" data-step="${s.index}" ${s.index === selected ? "" : "hidden"}>${rows || `<tr><td colspan="9" class="muted">No complete visits in this step.</td></tr>`}</tbody>`;
+      const v = visitsOf(s);
+      const opened = v !== undefined ? `${v.toLocaleString("en-US")} page visits${s.visitsEstimated ? " (estimated)" : ""}, ` : "";
+      return `<p class="sub" data-step-group="api" data-step="${s.index}" ${s.index === selected ? "" : "hidden"}>${opened}${s.endpoints.length} APIs, ${fmtCount(s.overall.n)} calls in ${r.meta.stepDurationSec}s (${fmtNum(s.overall.rps)} per second).</p>`;
     })
     .join("");
-  return `<div class="controls">${stepSelect(r, "pages", selected)}</div>
+  const select =
+    r.steps.length > 1
+      ? `<div class="controls"><label>Show step <select data-step-target="api">${r.steps
+          .map((s) => `<option value="${s.index}"${s.index === selected ? " selected" : ""}>${esc(targetText(r, s.targetRps))}${r.systemBreak?.step === s.index ? " (broke here)" : ""}</option>`)
+          .join("")}</select></label></div>`
+      : "";
+  const visitsNote = usersMode(r)
+    ? " Calls = how often users opened the pages that use the API (×N next to each page) times the calls per visit, so an API on every page is called far more than one on a single page."
+    : "";
+  return `${select}${totals}
 <div class="table-wrap"><table class="sortable"><thead><tr>
-${th("Page")}${th("Interaction")}${th("Visits", "num")}${th("Ready p50", "num")}${th("Ready p95", "num")}${th("Max", "num")}${th("LCP p95", "num")}${th("Timeouts", "num")}${th("Slowest API calls (p95)", "nosort")}
-</tr></thead>${bodies}</table></div>
-<p class="muted">Ready = no API call in flight and no loading indicator for ${esc("500 ms")}; measured from navigation or click.</p>`;
+${th("API (service)")}${th("Used on page")}${th("Calls", "num")}${th("Avg", "num")}${th("p50", "num")}${th("p95", "num")}${th("Max", "num")}${th("Failed", "num")}${th("Why it failed", "nosort")}
+</tr></thead>${groups}</table></div>
+<p class="muted">Sorted slowest first (p95); click a column to sort by it. Avg, p50, p95 and max include timed-out calls at the time they waited.${visitsNote}</p>`;
 }
 
-function stepsTable(r: RunResults): string {
-  const rows = r.steps
-    .map((s) => `<tr>
-<td>${s.index + 1}</td>
-${numTd(s.targetRps, String(s.targetRps))}
-${numTd(s.overall.rps, fmtNum(s.overall.rps))}
-${numTd(s.overall.n, fmtNum(s.overall.n))}
-${numTd(s.overall.p50, fmtMs(s.overall.p50))}
-${numTd(s.overall.p95, fmtMs(s.overall.p95))}
-${numTd(s.overall.errorRate, fmtPct(s.overall.errorRate))}
-${numTd(s.overall.throttled, String(s.overall.throttled))}
-${numTd(s.runner.cpuMax, `${s.runner.cpuMax}%`, s.runner.cpuMax >= 85 ? "worse" : "")}
-<td>${esc(s.services.filter((x) => x.broke).map((x) => x.name).join(", ") || "")}${s.emergency ? ` <strong>Emergency: ${esc(s.emergency)}</strong>` : ""}</td>
-</tr>`)
-    .join("");
-  return `<div class="table-wrap"><table class="sortable"><thead><tr>
-${th("Step")}${th(usersMode(r) ? "Virtual users" : "Target req/s", "num")}${th("Achieved req/s", "num")}${th("Requests", "num")}${th("p50", "num")}${th("p95", "num")}${th("Errors", "num")}${th("429", "num")}${th("Runner CPU max", "num")}${th("Broke in this step")}
-</tr></thead><tbody>${rows}</tbody></table></div>`;
-}
-
-function metaBlock(r: RunResults): string {
+function setupBlock(r: RunResults): string {
   const m = r.meta;
   const items: [string, string][] = [
-    ["Environment", `${m.env} (${m.envKind}) — ${m.webBaseUrl}`],
-    ["Started / ended", `${m.startedAt} → ${m.endedAt}`],
-    ["Runner", `${m.runner.host} · ${m.runner.platform} · ${m.runner.cpus} CPUs · ${m.runner.memGb} GB`],
-    ["Versions", `node ${m.versions.node} · ${m.versions.k6} · playwright ${m.versions.playwright}`],
+    ["Environment", `${m.env} — ${m.webBaseUrl} (${m.app ?? "retailer"} app)`],
+    ["Started / ended (UTC)", `${m.startedAt.slice(0, 19).replace("T", " ")} → ${m.endedAt.slice(0, 19).replace("T", " ")}`],
     [
       "Steps",
       m.mode === "users"
-        ? `${m.stepsPlanned.join(", ")} virtual users × ${m.stepDurationSec}s, ${m.thinkTimeSec ?? "?"}s think time between pages`
+        ? `${m.stepsPlanned.join(", ")} users × ${m.stepDurationSec}s, ${m.thinkTimeSec ?? "?"}s think time between pages, ${m.sessionsPerUser ?? 1} login(s) per account`
         : `${m.stepsPlanned.join(", ")} req/s × ${m.stepDurationSec}s`,
     ],
-    ["Sessions per user", String(m.sessionsPerUser ?? 1)],
-    ["Break rule", `error rate > ${fmtPct(m.breakRules.errorRate)} or p95 > ${fmtMs(m.breakRules.p95Ms)} (min ${m.breakRules.minRequests} requests)`],
-    ["App", m.app ?? "retailer"],
-    ["Users / browsers", `${m.users} / ${m.browsers}`],
-    ["Filters", Object.entries(m.filters).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join(", ") || "none"],
-    ["Catalog", `${m.catalogCreatedAt} · ${m.catalogSignature.length} endpoints`],
+    ["Accounts / browsers", `${m.users} / ${m.browsers}`],
+    ["Break rule", `${breakRuleText(r)} (min ${m.breakRules.minRequests} requests)`],
+    ["Services left out", m.filters.excludeServices?.length ? m.filters.excludeServices.join(", ") : "none"],
+    ["Load machine", `${m.runner.host} · ${m.runner.cpus} CPUs · ${m.runner.memGb} GB`],
+    ["Run ended", m.endReason],
   ];
-  return `<div class="table-wrap"><table><tbody>${items.map(([k, v]) => `<tr><td class="muted">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</tbody></table></div>`;
-}
-
-function excludedBlock(r: RunResults): string {
-  if (!r.plan.excluded.length) return "";
-  return `<details><summary>${r.plan.excluded.length} endpoints not loaded</summary><div class="table-wrap"><table><tbody>${r.plan.excluded
-    .map((e) => `<tr><td class="mono">${esc(e.key)}</td><td>${esc(e.reason)}</td></tr>`)
-    .join("")}</tbody></table></div></details>`;
+  const excluded = r.plan.excluded.length
+    ? `<h3>APIs not loaded (${r.plan.excluded.length})</h3><table><tbody>${r.plan.excluded.map((e) => `<tr><td class="mono">${esc(e.key)}</td><td class="muted">${esc(e.reason)}</td></tr>`).join("")}</tbody></table>`
+    : "";
+  const notes = r.warnings.length ? `<h3>Notes</h3><ul class="warn">${r.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : "";
+  return `<details class="card"><summary>Run setup, APIs not loaded, notes</summary>
+<table><tbody>${items.map(([k, v]) => `<tr><td class="muted">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</tbody></table>
+${excluded}${notes}</details>`;
 }
 
 export function renderRunReport(r: RunResults): string {
-  const selected = defaultStep(r);
   const title = `Load test — ${r.meta.env}${r.meta.label ? " — " + r.meta.label : ""}`;
+  const focus = focusStep(r);
   const body = `
 <h1>${esc(title)}</h1>
-<p class="sub">${esc(r.meta.envKind)} deployment · ${esc(r.meta.startedAt.slice(0, 16).replace("T", " "))} UTC · read-only load on the ${esc(r.meta.app ?? "retailer")} app</p>
-${headline(r)}
-${r.warnings.length ? `<h2>Warnings</h2><div class="card"><ul class="warn">${r.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>` : ""}
-<h2>Latency and errors by load step</h2>
-${charts(r)}
-<h2>Services</h2>
-${servicesTable(r)}
-<h2>Slowest endpoints</h2>
-<p class="sub">Sorted by p95 for the chosen step. Expand a row to see paging/sort/filter/search variants.</p>
-${endpointsTable(r, selected)}
-${excludedBlock(r)}
-<h2>Slowest pages (real browser, under load)</h2>
-${pagesTable(r, selected)}
-<h2>Steps</h2>
+<p class="sub">${esc(r.meta.webBaseUrl)} · ${esc(r.meta.startedAt.slice(0, 16).replace("T", " "))} UTC · read-only load</p>
+${verdict(r)}
+<h2>Load steps</h2>
 ${stepsTable(r)}
-<h2>Run details</h2>
-${metaBlock(r)}
-<footer>dxp-loadtest · results.json in this folder holds every number shown here.</footer>`;
+<h2>API calls</h2>
+${focus ? apiTable(r, focus.index) : `<p class="muted">No step completed.</p>`}
+<h2>Details</h2>
+${setupBlock(r)}
+<footer>dxp-loadtest · results.json in this folder has every number, including per-page browser timings and parameter variants.</footer>`;
   return page(title, body);
 }

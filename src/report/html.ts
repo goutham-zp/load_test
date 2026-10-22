@@ -89,7 +89,11 @@ details summary { cursor: pointer; color: var(--ink-2); }
 details table { margin-top: 6px; }
 .controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 8px 0 12px; }
 select, input[type="search"] { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); }
-.spark { display: block; }
+.verdict { margin-bottom: 12px; border-left: 4px solid var(--brand); }
+.verdict p { margin: 0 0 6px; font-size: 15px; color: var(--ink); }
+.verdict p:last-child { margin-bottom: 0; }
+details.card summary { font-weight: 600; }
+details.card table { margin-top: 10px; }
 footer { margin-top: 40px; color: var(--muted); font-size: 12px; }
 @media (max-width: 640px) { .charts { grid-template-columns: 1fr; } }
 `;
@@ -294,29 +298,6 @@ ${markers}${lines}${xLabels}
 </svg>
 <div class="tip"></div>
 </div>`;
-}
-
-/** Tiny single-series sparkline; a critical dot marks the step a service broke. */
-export function sparkline(values: (number | null)[], fmt: (v: number) => string, labels: string[], breakIndex?: number): string {
-  const w = 120;
-  const h = 28;
-  const nums = values.filter((v): v is number => v !== null);
-  if (nums.length === 0) return `<span class="muted">–</span>`;
-  const maxV = Math.max(...nums) || 1;
-  const n = values.length;
-  const x = (i: number) => (n <= 1 ? w / 2 : 4 + (i * (w - 8)) / (n - 1));
-  const y = (v: number) => 4 + (h - 8) * (1 - v / maxV);
-  const pts = values.map((v, i) => (v === null ? null : `${x(i)},${y(v)}`)).filter(Boolean).join(" ");
-  const dots = values
-    .map((v, i) => {
-      if (v === null) return "";
-      const isBreak = i === breakIndex;
-      const isLast = i === n - 1 || values.slice(i + 1).every((u) => u === null);
-      if (!isBreak && !isLast) return `<circle cx="${x(i)}" cy="${y(v)}" r="6" fill="transparent"><title>${esc(labels[i])}: ${esc(fmt(v))}</title></circle>`;
-      return `<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="var(${isBreak ? "--critical" : "--series-1"})" stroke="var(--surface)" stroke-width="1.5"><title>${esc(labels[i])}: ${esc(fmt(v))}</title></circle>`;
-    })
-    .join("");
-  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="var(--series-1)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>${dots}</svg>`;
 }
 
 export function niceMax(v: number): number {

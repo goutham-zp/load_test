@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { StatsBuilder } from "../src/analysis/stats.ts";
 import { computeComparison, delta, matchSteps } from "../src/report/compare.ts";
 import { esc, niceMax } from "../src/report/html.ts";
-import { renderRunReport } from "../src/report/runReport.ts";
+import { renderRunReport, throughputCeiling } from "../src/report/runReport.ts";
 import type { RunResults, StepRecord } from "../src/run/results.ts";
 
 function stats(p95: number, n = 100) {
@@ -69,13 +69,32 @@ function results(env: string, p95s: number[], breakAt?: number): RunResults {
 
 describe("run report", () => {
   it("renders self-contained HTML and escapes untrusted text", () => {
-    const html = renderRunReport(results("oracle-qa", [100, 200, 400], 2));
+    const html = renderRunReport(results("oracle-qa", [100, 200, 40_000], 2));
     expect(html.startsWith("<!doctype html>")).toBe(true);
     expect(html).not.toContain("<script>alert(1)</script>");
     expect(html).toContain("&lt;script&gt;");
-    expect(html).toContain("pageNumber=49");
+    expect(html).toContain("broke at <strong>25 req/s</strong>, too slow: p95");
+    expect(html).toContain("✕ Too slow<");
+    expect(html).toContain("no calls failed");
+    // The API list: endpoint, the page that calls it, and timeouts apart from 5xx.
+    expect(html).toContain("GET /fms/v3/invoices");
+    expect(html).toContain(">home<");
+    expect(html).toContain("Why it failed");
     expect(html).not.toMatch(/<script[^>]+src=/);
     expect(html).not.toMatch(/<link[^>]+href=/);
+  });
+});
+
+describe("throughput ceiling", () => {
+  it("spots a step where the load grew but the requests served did not", () => {
+    const r = results("pg-qa", [100, 200, 400]);
+    r.steps[1]!.targetRps = 10;
+    r.steps[2]!.targetRps = 20;
+    r.steps[1]!.overall.rps = 11;
+    r.steps[2]!.overall.rps = 11.2;
+    expect(throughputCeiling(r)).toEqual({ step: 2, rps: 11.2 });
+    r.steps[2]!.overall.rps = 20;
+    expect(throughputCeiling(r)).toBeUndefined();
   });
 });
 

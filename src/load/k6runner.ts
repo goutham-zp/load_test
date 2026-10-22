@@ -6,6 +6,7 @@ import zlib from "node:zlib";
 import { StatsBuilder, type Stats } from "../analysis/stats.ts";
 import { writeJson } from "../config/load.ts";
 import { dirs } from "../paths.ts";
+import type { RunResults } from "../run/results.ts";
 import type { Journey, LoadPlan } from "./plan.ts";
 
 export interface StepInput {
@@ -99,7 +100,11 @@ export interface K6StepResult {
   windowSec: number;
   all: Stats;
   services: Map<string, Stats>;
-  endpoints: Map<string, { service: string; stats: Stats }>;
+  endpoints: Map<string, { service: string; stats: Stats; failures: Record<string, number> }>;
+  /** Pages opened per page id (users mode). */
+  visits: Record<string, number>;
+  /** True when the output has no lt_visits counter (older runs): visits are then the most calls of any one API per page. */
+  visitsEstimated: boolean;
   variants: Map<string, { service: string; tpl: string; variant: string; stats: Stats }>;
   throttledBySource: Record<string, number>;
   throttledByService: Map<string, Record<string, number>>;
@@ -113,11 +118,29 @@ interface Point {
   data: { time: string; value: number; tags?: Record<string, string> };
 }
 
+/** Why a call failed, from its status and k6's error_code (https://grafana.com/docs/k6/latest/javascript-api/error-codes/). */
+export function failureReason(status: number, errorCode?: string): string | undefined {
+  if (status === 429) return "HTTP 429 (rate limited)";
+  if (status >= 400) return `HTTP ${status}`;
+  if (status !== 0) return undefined;
+  const code = Number(errorCode);
+  if (code === 1050) return "Timed out (no response)";
+  if (code === 1211) return "Connect timed out";
+  if (code === 1212) return "Connection refused";
+  if (code === 1220 || code === 1201) return "Connection reset by server";
+  if (code >= 1100 && code < 1200) return "DNS lookup failed";
+  if (code >= 1300 && code < 1400) return "TLS error";
+  if (code >= 1600 && code < 1700) return "HTTP/2 error";
+  return errorCode ? `Request failed (k6 error ${errorCode})` : "Request failed (no response)";
+}
+
 /** Streams k6's gzipped JSON output and aggregates per service, endpoint and parameter variant. */
 export async function parseK6Output(outFile: string, plan: LoadPlan): Promise<K6StepResult> {
   const all = new StatsBuilder();
   const services = new Map<string, StatsBuilder>();
-  const endpoints = new Map<string, { service: string; b: StatsBuilder }>();
+  const endpoints = new Map<string, { service: string; b: StatsBuilder; failures: Record<string, number> }>();
+  const visits: Record<string, number> = {};
+  const callsPerPage = new Map<string, Map<string, number>>();
   const variants = new Map<string, { service: string; tpl: string; variant: string; b: StatsBuilder }>();
   const throttledBySource: Record<string, number> = {};
   const throttledByService = new Map<string, Record<string, number>>();
@@ -151,8 +174,16 @@ export async function parseK6Output(outFile: string, plan: LoadPlan): Promise<K6
         all.add(status, p.data.value);
         if (!services.has(svc)) services.set(svc, new StatsBuilder());
         services.get(svc)!.add(status, p.data.value);
-        if (!endpoints.has(tpl)) endpoints.set(tpl, { service: svc, b: new StatsBuilder() });
-        endpoints.get(tpl)!.b.add(status, p.data.value);
+        if (!endpoints.has(tpl)) endpoints.set(tpl, { service: svc, b: new StatsBuilder(), failures: {} });
+        const ep = endpoints.get(tpl)!;
+        ep.b.add(status, p.data.value);
+        const reason = failureReason(status, tags.error_code);
+        if (reason) ep.failures[reason] = (ep.failures[reason] ?? 0) + 1;
+        if (tags.page) {
+          const calls = callsPerPage.get(tags.page) ?? new Map<string, number>();
+          calls.set(tpl, (calls.get(tpl) ?? 0) + 1);
+          callsPerPage.set(tags.page, calls);
+        }
         const vk = `${tpl}\u0000${variant}`;
         if (!variants.has(vk)) variants.set(vk, { service: svc, tpl, variant, b: new StatsBuilder() });
         variants.get(vk)!.b.add(status, p.data.value);
@@ -167,6 +198,9 @@ export async function parseK6Output(outFile: string, plan: LoadPlan): Promise<K6
         const idx = Number((tags.scenario ?? "").replace(/^s/, ""));
         const svc = plan.services[idx]?.name;
         if (svc) droppedByService.set(svc, (droppedByService.get(svc) ?? 0) + p.data.value);
+      } else if (p.metric === "lt_visits") {
+        const page = tags.page ?? "?";
+        visits[page] = (visits[page] ?? 0) + p.data.value;
       } else if (p.metric === "lt_refused") {
         refused += p.data.value;
       }
@@ -174,15 +208,47 @@ export async function parseK6Output(outFile: string, plan: LoadPlan): Promise<K6
   }
 
   const windowSec = last > first ? (last - first) / 1000 : 0;
+  const visitsEstimated = Object.keys(visits).length === 0 && callsPerPage.size > 0;
+  if (visitsEstimated) for (const [page, calls] of callsPerPage) visits[page] = Math.max(...calls.values());
   return {
     windowSec,
     all: all.build(windowSec),
     services: new Map([...services].map(([k, b]) => [k, b.build(windowSec)])),
-    endpoints: new Map([...endpoints].map(([k, v]) => [k, { service: v.service, stats: v.b.build(windowSec) }])),
+    endpoints: new Map([...endpoints].map(([k, v]) => [k, { service: v.service, stats: v.b.build(windowSec), failures: v.failures }])),
+    visits,
+    visitsEstimated,
     variants: new Map([...variants].map(([k, v]) => [k, { service: v.service, tpl: v.tpl, variant: v.variant, stats: v.b.build(windowSec) }])),
     throttledBySource,
     throttledByService,
     droppedByService,
     refused,
   };
+}
+
+/**
+ * Fills in what older results.json files lack (failure reasons, timeouts, page visits, the request timeout) from each
+ * step's raw k6 output, so re-rendering an old run's report shows them. results.json itself is left unchanged.
+ */
+export async function backfillResults(runDir: string, r: RunResults): Promise<void> {
+  for (const step of r.steps) {
+    const stepDir = path.join(runDir, `step-${String(step.index + 1).padStart(2, "0")}`);
+    const outFile = path.join(stepDir, "k6.json.gz");
+    if (r.meta.requestTimeoutSec === undefined && fs.existsSync(path.join(stepDir, "step.json"))) {
+      r.meta.requestTimeoutSec = (JSON.parse(fs.readFileSync(path.join(stepDir, "step.json"), "utf8")) as { timeoutSec?: number }).timeoutSec;
+    }
+    if (step.endpoints.some((e) => e.failures) || !fs.existsSync(outFile)) continue;
+    // The plan is only used to name dropped iterations, which aren't backfilled.
+    const res = await parseK6Output(outFile, { services: [] } as unknown as LoadPlan);
+    for (const e of step.endpoints) {
+      const fresh = res.endpoints.get(e.key);
+      if (!fresh) continue;
+      e.failures = fresh.failures;
+      e.stats.timeouts = fresh.stats.timeouts;
+    }
+    step.overall.timeouts = res.all.timeouts;
+    if (r.meta.mode === "users" && !step.visits) {
+      step.visits = res.visits;
+      step.visitsEstimated = res.visitsEstimated;
+    }
+  }
 }

@@ -37,6 +37,8 @@ export interface RunOptions {
   thinkTimeSec?: number;
   /** Logins per account; each has its own token and so its own per-token rate-limit bucket. */
   sessionsPerUser?: number;
+  /** Logins running at once. */
+  loginConcurrency?: number;
 }
 
 export const DEFAULT_THINK_TIME_SEC = 10;
@@ -194,7 +196,7 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
 
   try {
     const horizon = stepDurationSec + 120 + settings.tokenRefreshMarginSec;
-    const ensureOpts = { companies: catalogCompanies(catalog), sessionsPerUser };
+    const ensureOpts = { companies: catalogCompanies(catalog), sessionsPerUser, loginConcurrency: opts.loginConcurrency };
     let sessions = await ensureSessions(browser, env, app, guard, users, horizon, log, ensureOpts);
     assertTokensFor(plan, sessions);
     if (browsers > 0) {
@@ -306,9 +308,11 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
               broke: newlyBroken.includes(s.name) ? states.get(s.name)!.reasons : undefined,
             };
           }),
-        endpoints: [...result.endpoints].map(([key, v]) => ({ key, service: v.service, stats: v.stats })),
+        endpoints: [...result.endpoints].map(([key, v]) => ({ key, service: v.service, stats: v.stats, failures: v.failures })),
         variants: [...result.variants.values()].map((v) => ({ key: v.tpl, service: v.service, variant: v.variant, stats: v.stats })),
         pages: aggregatePages(stepVisits, matcher),
+        visits: usersMode ? result.visits : undefined,
+        visitsEstimated: usersMode ? result.visitsEstimated : undefined,
         runner: health.summary(),
         refused: result.refused,
         blockedWrites: (layer?.blockedWrites ?? 0) - blockedBefore,
@@ -381,6 +385,7 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
       thinkTimeSec: usersMode ? thinkSec : undefined,
       sessionsPerUser,
       stepDurationSec,
+      requestTimeoutSec: settings.load.requestTimeoutSec,
       browsers,
       users: users.length,
       stopAtFirstBreak: opts.stopAtFirstBreak,

@@ -102,6 +102,45 @@ export interface EnsureOptions {
   companies?: Record<string, string[]>;
   /** Logins per account (default 1). Each is a separate session with its own token. */
   sessionsPerUser?: number;
+  /** Logins running at once (default 6), each in its own browser context. */
+  loginConcurrency?: number;
+}
+
+export const DEFAULT_LOGIN_CONCURRENCY = 6;
+
+/**
+ * Sessions whose token equals an earlier session's token of the same account. Auth0 tokens carry no unique id, so two
+ * logins finishing in the same second get the very same token, which would share one rate-limit bucket.
+ */
+export function duplicateTokenSessions(sessions: Record<string, UserSession>): UserSession[] {
+  const seen = new Map<string, Set<string>>();
+  const dups: UserSession[] = [];
+  for (const s of Object.values(sessions).sort((a, b) => (a.sessionNo ?? 1) - (b.sessionNo ?? 1))) {
+    const key = s.tokenKey ?? s.key;
+    const tokens = seen.get(key) ?? new Set<string>();
+    if (tokens.has(s.token)) dups.push(s);
+    else tokens.add(s.token);
+    seen.set(key, tokens);
+  }
+  return dups;
+}
+
+/** Runs tasks with at most `limit` at a time; every task runs even when others fail. */
+export async function runPool<T>(tasks: (() => Promise<T>)[], limit: number): Promise<PromiseSettledResult<T>[]> {
+  const results: PromiseSettledResult<T>[] = new Array(tasks.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < tasks.length) {
+      const i = next++;
+      try {
+        results[i] = { status: "fulfilled", value: await tasks[i]!() };
+      } catch (reason) {
+        results[i] = { status: "rejected", reason };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, tasks.length)) }, worker));
+  return results;
 }
 
 /** The label a session's login runs under: the user for the first, user#n for the others (files, keys). */
@@ -118,7 +157,10 @@ export function companySessionsUsable(have: UserSession[], horizonSec: number, o
   return have.length >= Math.min(opts.maxCompanies ?? 1, available);
 }
 
-/** Logs in every user whose sessions are missing, incomplete or expire within horizonSec. */
+/**
+ * Logs in every session (user x sessionsPerUser) that is missing, incomplete or expires within horizonSec, several at
+ * a time. Each finished login is saved right away, so an interrupted run keeps what it got.
+ */
 export async function ensureSessions(
   browser: Browser,
   env: EnvConfig,
@@ -131,6 +173,13 @@ export async function ensureSessions(
 ): Promise<Record<string, UserSession>> {
   const sessions = loadSessions(env.name);
   let changed = false;
+  for (const [key, s] of Object.entries(sessions)) {
+    if (!users.some((u) => u.key === s.user)) {
+      delete sessions[key];
+      changed = true;
+    }
+  }
+  const todo: { user: User; n: number }[] = [];
   for (const user of users) {
     const all = sessionsOf(sessions, user.key);
     if (all.some((s) => s.webBaseUrl !== env.webBaseUrl || s.email?.toLowerCase() !== user.email.toLowerCase())) {
@@ -144,6 +193,15 @@ export async function ensureSessions(
         if (s && !needsRefresh(s, horizonSec) && fs.existsSync(s.storageStatePath)) continue;
       } else if (companySessionsUsable(have, horizonSec, opts, user.key)) continue;
       for (const s of have) delete sessions[s.key];
+      changed = true;
+      todo.push({ user, n });
+    }
+  }
+  if (changed) saveSessions(env.name, sessions);
+
+  const limit = opts.loginConcurrency ?? DEFAULT_LOGIN_CONCURRENCY;
+  if (todo.length > 1) log(`Logging in ${todo.length} sessions, ${Math.min(limit, todo.length)} at a time`);
+  const loginOne = async ({ user, n }: { user: User; n: number }) => {
       // Each login of the account runs under its own label, so keys and saved browser states don't collide.
       const label = sessionLabel(user.key, n);
       const as = { ...user, key: label };
@@ -161,10 +219,30 @@ export async function ensureSessions(
         s.tokenKey = label === user.key ? s.key : user.key + s.key.slice(label.length);
         sessions[s.key] = s;
       }
-      changed = true;
-    }
+      saveSessions(env.name, sessions);
+  };
+  const results = await runPool(todo.map((t) => () => loginOne(t)), limit);
+  // Logins of one account that finished in the same second got the same token: redo those, staggered, until distinct.
+  for (let round = 1; round <= 3; round++) {
+    const dups = duplicateTokenSessions(sessions);
+    if (dups.length === 0) break;
+    log(`${dups.length} session(s) got the same token as another login of the same account; logging them in again (round ${round})`);
+    for (const d of dups) delete sessions[d.key];
+    saveSessions(env.name, sessions);
+    const redo = dups.map((d) => ({ user: users.find((u) => u.key === d.user)!, n: d.sessionNo ?? 1 }));
+    await runPool(
+      redo.map((t, i) => async () => {
+        await new Promise((r) => setTimeout(r, i * 1500));
+        await loginOne(t);
+      }),
+      limit
+    );
   }
-  for (const [key, s] of Object.entries(sessions)) if (!users.some((u) => u.key === s.user)) delete sessions[key];
-  if (changed) saveSessions(env.name, sessions);
+  const stillDup = duplicateTokenSessions(sessions);
+  if (stillDup.length) log(`Warning: ${stillDup.length} session(s) still share a token with another session of the account: ${stillDup.map((s) => s.key).join(", ")}`);
+  const failed = results
+    .map((r, i) => (r.status === "rejected" ? `${sessionLabel(todo[i]!.user.key, todo[i]!.n)}: ${(r.reason as Error).message.split("\n")[0]}` : undefined))
+    .filter((m): m is string => !!m);
+  if (failed.length) throw new Error(`${failed.length} of ${todo.length} logins failed (the others are saved; run again to retry):\n  ${failed.join("\n  ")}`);
   return sessions;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { k6Tokens, sessionLabel, type UserSession } from "../src/browser/session.ts";
+import { duplicateTokenSessions, k6Tokens, runPool, sessionLabel, type UserSession } from "../src/browser/session.ts";
 import { buildCatalog } from "../src/catalog/build.ts";
 import type { RecordedRequest } from "../src/catalog/types.ts";
 import { createRouteMatcher } from "../src/gateway/routes.ts";
@@ -30,6 +30,34 @@ describe("several sessions per account", () => {
       "user3|9": session("user3|9", "user3|9", 1, "t3a"),
     });
     expect(tokens).toEqual({ user1: ["t1a", "t1b"], user2: "t2", "user3|9": ["t3a", "t3b"] });
+  });
+});
+
+describe("parallel logins", () => {
+  it("find sessions that got the same token as another login of the account", () => {
+    const dups = duplicateTokenSessions({
+      user2: session("user2", "user2", 1, "same"),
+      "user2#2": session("user2#2", "user2", 2, "same"),
+      "user2#3": session("user2#3", "user2", 3, "other"),
+      user3: session("user3", "user3", 1, "same"),
+    });
+    expect(dups.map((s) => s.key)).toEqual(["user2#2"]);
+  });
+
+  it("run at most `limit` tasks at once and finish every task even when some fail", async () => {
+    let running = 0;
+    let peak = 0;
+    const task = (i: number) => async () => {
+      running++;
+      peak = Math.max(peak, running);
+      await new Promise((r) => setTimeout(r, 5));
+      running--;
+      if (i === 2) throw new Error("bad password");
+      return i;
+    };
+    const results = await runPool([0, 1, 2, 3, 4, 5, 6].map(task), 3);
+    expect(peak).toBe(3);
+    expect(results.map((r) => r.status)).toEqual(["fulfilled", "fulfilled", "rejected", "fulfilled", "fulfilled", "fulfilled", "fulfilled"]);
   });
 });
 

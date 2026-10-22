@@ -17,6 +17,33 @@ Users mode: load expressed as simultaneous users instead of requests per second.
   details with think time and sessions); `compare` warns when the two runs used different modes or think times.
 - **`run --exclude-service a,b`** leaves services out of the load (plan and users-mode journeys), e.g. one that is
   already down; its endpoints are listed as excluded with the reason. Pages in the browser layer still call it.
+- **Parallel logins.** Sessions log in several at a time (`--login-concurrency`, default 6; login and run), each in
+  its own browser context, and each is saved as soon as it finishes, so an interrupted login keeps its progress. On
+  test, 6 logins took ~60 s instead of ~3.5 min. Failed logins are listed together after the others finish.
+- **Distinct tokens per session.** Auth0 tokens carry no unique id: two logins of one account finishing in the same
+  second got the identical token (seen on test), which would share one rate-limit bucket. Such sessions are logged in
+  again, staggered, until every session of the account has its own token.
+- **Simpler run report.** It has three parts:
+  - A short verdict: where the run broke, and the throughput ceiling (a step where the load grew by half or more but
+    the requests served stayed flat).
+  - The load steps table: calls made, req/s served, p50, p95, errors, and OK or broke for each step. A broken step
+    says which limit it crossed ("Too slow", "Too many errors" or both), and the verdict gives the numbers
+    (e.g. "too slow: p95 32.3 s (limit 10.0 s); no calls failed"), so a step can't look broken without saying why.
+  - The full list of API calls for a chosen step (default: the breaking step). Each row shows the pages that call the
+    API, the calls made, avg/p50/p95/max, timed out, 5xx and 4xx; it is sortable.
+
+  Run setup, the APIs not loaded, and notes are folded away. Charts, tiles, per-page browser timings, parameter
+  variants and rate-limit ceilings are no longer shown; results.json still has them. Regenerate an old run's report
+  with `report runs/<dir>`.
+- **Why calls failed.** Each API row shows the failed calls and the reasons, built from the status and k6's
+  `error_code`, e.g. "63 × Timed out (no response in 60s)", "2 × HTTP 503", "1 × Connection refused". Stats also
+  count calls with no response (status 0) as `timeouts`, in addition to counting them in errors.
+- **Page visits** (users mode). k6 counts every page a virtual user opens (`lt_visits`). The steps table shows the
+  visits for each step, and each API row shows how often each of its pages was opened (`home ×6`), so the call counts
+  can be traced back.
+- `report <runDir>` reads the failure reasons and page visits for older runs from each step's `k6.json.gz`.
+  For runs made before the counter existed, visits are estimated: the most calls of any one API on that page.
+  results.json is left unchanged. New runs record the request timeout in the run meta.
 
 ## 0.2.0 — 2026-10-21
 

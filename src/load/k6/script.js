@@ -23,6 +23,7 @@ const journeys = usersMode ? new SharedArray("journeys", () => JSON.parse(open(_
 const READ_METHODS = { GET: true, HEAD: true, OPTIONS: true };
 const throttled = new Counter("lt_throttled");
 const refused = new Counter("lt_refused");
+const visits = new Counter("lt_visits");
 
 const scenarios = {};
 if (usersMode) {
@@ -143,6 +144,7 @@ export function user() {
     });
     sent.push(r);
   }
+  visits.add(1, { page: journey.page });
   const responses = http.batch(batch);
   responses.forEach((res, i) => noteThrottle(res, sent[i].svc, sent[i].tpl));
   sleep(step.thinkSec * (0.5 + Math.random()));

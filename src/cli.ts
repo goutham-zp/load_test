@@ -10,6 +10,7 @@ import type { EnvConfig } from "./config/types.ts";
 import { discover } from "./discover/discover.ts";
 import { envMatcher } from "./gateway/routes.ts";
 import { envGuard } from "./guard/readonly.ts";
+import { backfillResults } from "./load/k6runner.ts";
 import { dirs, ROOT } from "./paths.ts";
 import { computeComparison, renderComparison } from "./report/compare.ts";
 import { renderRunReport } from "./report/runReport.ts";
@@ -26,7 +27,8 @@ Usage: npm run lt -- <command> [options]
 
 Commands
   setup                        Check/install k6 and Playwright Chromium
-  login     --env <name>       Log the users in (headless) and save sessions [--sessions-per-user N]
+  login     --env <name>       Log the users in (headless) and save sessions
+            [--sessions-per-user N] [--login-concurrency 6]
   discover  --env <name>       Crawl pages + interactions, record API calls, write the catalog
             [--users user1,user2] [--pages id1,id2] [--max-companies N] [--headed]
             With --users or --pages, the run is merged into the previous catalog
@@ -119,6 +121,7 @@ async function main(): Promise<void> {
       vus: { type: "string" },
       "think-time": { type: "string" },
       "sessions-per-user": { type: "string" },
+      "login-concurrency": { type: "string" },
       yes: { type: "boolean", default: false },
       out: { type: "string" },
       "allow-prod-like": { type: "boolean", default: false },
@@ -153,7 +156,11 @@ async function main(): Promise<void> {
       const browser = await chromium.launch({ headless: !values.headed });
       try {
         const maxCompanies = values["max-companies"] ? Number(values["max-companies"]) : loadSettings().discovery.maxCompaniesPerUser;
-        await ensureSessions(browser, env, app, envGuard(env, app), users, 0, log, { maxCompanies, sessionsPerUser: positiveInt(values["sessions-per-user"], "--sessions-per-user") });
+        await ensureSessions(browser, env, app, envGuard(env, app), users, 0, log, {
+          maxCompanies,
+          sessionsPerUser: positiveInt(values["sessions-per-user"], "--sessions-per-user"),
+          loginConcurrency: positiveInt(values["login-concurrency"], "--login-concurrency"),
+        });
       } finally {
         await browser.close();
       }
@@ -231,6 +238,7 @@ async function main(): Promise<void> {
         vus,
         thinkTimeSec: thinkTime,
         sessionsPerUser: positiveInt(values["sessions-per-user"], "--sessions-per-user"),
+        loginConcurrency: positiveInt(values["login-concurrency"], "--login-concurrency"),
       });
       return;
     }
@@ -246,6 +254,7 @@ async function main(): Promise<void> {
       }
       const dir = resolveRunDir(rest[0]);
       const results = readJson<RunResults>(path.join(dir, "results.json"));
+      await backfillResults(dir, results);
       fs.writeFileSync(path.join(dir, "report.html"), renderRunReport(results));
       log(`Report: ${path.join(dir, "report.html")}`);
       return;

@@ -15,6 +15,8 @@ export interface Stats {
   errors: number;
   throttled: number;
   clientErrors: number;
+  /** Status 0: no response before the timeout, or the connection failed. Counted in errors too. Absent in old results. */
+  timeouts?: number;
   /** errors / (n - throttled) */
   errorRate: number;
   /** Latency percentiles over non-throttled requests, ms. */
@@ -36,7 +38,7 @@ export function percentile(sorted: number[], p: number): number {
 /** Accumulates samples, then summarises. */
 export class StatsBuilder {
   private durations: number[] = [];
-  private counts = { n: 0, ok: 0, errors: 0, throttled: 0, clientErrors: 0 };
+  private counts = { n: 0, ok: 0, errors: 0, throttled: 0, clientErrors: 0, timeouts: 0 };
 
   add(status: number, durationMs: number): void {
     this.counts.n++;
@@ -47,7 +49,10 @@ export class StatsBuilder {
     }
     this.durations.push(durationMs);
     if (o === "ok") this.counts.ok++;
-    else if (o === "error") this.counts.errors++;
+    else if (o === "error") {
+      this.counts.errors++;
+      if (status === 0) this.counts.timeouts++;
+    }
     else this.counts.clientErrors++;
   }
 

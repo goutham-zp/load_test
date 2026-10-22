@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import zlib from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { advanceStates, checkBreak, emergencyReason, nothingLeftToClimb, type ServiceState } from "../src/analysis/evaluate.ts";
 import { classifyStatus, percentile, StatsBuilder } from "../src/analysis/stats.ts";
@@ -5,7 +9,8 @@ import type { Catalog, CatalogEndpoint } from "../src/catalog/types.ts";
 import type { ResolvedServices } from "../src/config/load.ts";
 import type { ServiceConfig, Settings } from "../src/config/types.ts";
 import { compileGuard } from "../src/guard/readonly.ts";
-import { buildLoadPlan, endpointSequence, interleave, serviceCap, stepRates, sustainedRate } from "../src/load/plan.ts";
+import { failureReason, parseK6Output } from "../src/load/k6runner.ts";
+import { buildLoadPlan, endpointSequence, interleave, serviceCap, stepRates, sustainedRate, type LoadPlan } from "../src/load/plan.ts";
 
 const breakRules: Settings["break"] = { errorRate: 0.05, p95Ms: 10_000, minRequests: 20 };
 
@@ -111,6 +116,16 @@ describe("stats", () => {
     expect(s.rps).toBe(10.2);
     expect(percentile([1, 2, 3, 4], 50)).toBe(2);
   });
+
+  it("count calls with no response as timeouts, inside the errors", () => {
+    const b = new StatsBuilder();
+    b.add(200, 10);
+    b.add(0, 60_000);
+    b.add(503, 20);
+    const s = b.build(10);
+    expect(s.errors).toBe(2);
+    expect(s.timeouts).toBe(1);
+  });
 });
 
 describe("break evaluation", () => {
@@ -148,5 +163,43 @@ describe("break evaluation", () => {
   it("emergency stop on overall error rate", () => {
     expect(emergencyReason(stats(100, 30, 10), { errorRate: 0.25 })).toMatch(/exceeded 25%/);
     expect(emergencyReason(stats(100, 10, 10), { errorRate: 0.25 })).toBeUndefined();
+  });
+});
+
+describe("k6 output: failure reasons and page visits", () => {
+  it("name why calls failed from status and k6 error code", () => {
+    expect(failureReason(200)).toBeUndefined();
+    expect(failureReason(503)).toBe("HTTP 503");
+    expect(failureReason(429)).toBe("HTTP 429 (rate limited)");
+    expect(failureReason(0, "1050")).toBe("Timed out (no response)");
+    expect(failureReason(0, "1212")).toBe("Connection refused");
+    expect(failureReason(0, "1999")).toBe("Request failed (k6 error 1999)");
+  });
+
+  const point = (metric: string, tags: Record<string, string>, value = 1) => JSON.stringify({ metric, type: "Point", data: { time: "2026-10-22T10:00:00Z", value, tags } });
+  const write = (lines: string[]) => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "lt-k6-")), "k6.json.gz");
+    fs.writeFileSync(file, zlib.gzipSync(lines.join("\n")));
+    return file;
+  };
+  const call = (tpl: string, page: string, status: string, error_code?: string) =>
+    point("http_req_duration", { tpl, page, status, svc: "fms/x", ...(error_code ? { error_code } : {}) }, 100);
+  const plan = { services: [] } as unknown as LoadPlan;
+
+  it("count reasons per endpoint and visits per page", async () => {
+    const res = await parseK6Output(
+      write([point("lt_visits", { page: "home" }), point("lt_visits", { page: "home" }), call("GET /a", "home", "200"), call("GET /a", "home", "0", "1050"), call("GET /a", "home", "503")]),
+      plan,
+    );
+    expect(res.endpoints.get("GET /a")!.failures).toEqual({ "Timed out (no response)": 1, "HTTP 503": 1 });
+    expect(res.endpoints.get("GET /a")!.stats.timeouts).toBe(1);
+    expect(res.visits).toEqual({ home: 2 });
+    expect(res.visitsEstimated).toBe(false);
+  });
+
+  it("estimate visits from the calls when the run predates the visit counter", async () => {
+    const res = await parseK6Output(write([call("GET /a", "home", "200"), call("GET /a", "home", "200"), call("GET /b", "home", "200"), call("GET /b", "plan", "200")]), plan);
+    expect(res.visits).toEqual({ home: 2, plan: 1 });
+    expect(res.visitsEstimated).toBe(true);
   });
 });
