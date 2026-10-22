@@ -34,6 +34,7 @@ Commands
   smoke     --env <name>       Every endpoint once + every page once; must pass before run
   run       --env <name>       Stepped load test (k6) with browsers measuring pages
             [--label text] [--only-page id | --only-endpoint text | --only-service name]
+            [--exclude-service a,b]  Leave services out of the load (e.g. one that is down)
             [--steps 5,10,25] [--step-duration 180] [--browsers 5]
             [--stop-at-first-break] [--yes]
             Users mode (instead of --steps): [--vus 100,250,500,1000] [--think-time 10]
@@ -110,6 +111,7 @@ async function main(): Promise<void> {
       "only-page": { type: "string" },
       "only-endpoint": { type: "string" },
       "only-service": { type: "string" },
+      "exclude-service": { type: "string" },
       steps: { type: "string" },
       "step-duration": { type: "string" },
       browsers: { type: "string" },
@@ -219,7 +221,7 @@ async function main(): Promise<void> {
       await runLoadTest({
         env,
         label: values.label,
-        filters: { onlyPage: values["only-page"], onlyEndpoint: values["only-endpoint"], onlyService: values["only-service"] },
+        filters: { onlyPage: values["only-page"], onlyEndpoint: values["only-endpoint"], onlyService: values["only-service"], excludeServices: list(values["exclude-service"]) },
         steps,
         stepDurationSec: values["step-duration"] ? Number(values["step-duration"]) : undefined,
         browsers: values.browsers !== undefined ? Number(values.browsers) : undefined,

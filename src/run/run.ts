@@ -375,7 +375,7 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
       versions: { node: process.version, k6: k6Version(), playwright: playwrightVersion() },
       catalogCreatedAt: catalog.createdAt,
       catalogSignature: catalogSignature(catalog),
-      filters: { onlyPage: opts.filters.onlyPage, onlyEndpoint: opts.filters.onlyEndpoint, onlyService: opts.filters.onlyService },
+      filters: { onlyPage: opts.filters.onlyPage, onlyEndpoint: opts.filters.onlyEndpoint, onlyService: opts.filters.onlyService, excludeServices: opts.filters.excludeServices },
       stepsPlanned: steps,
       mode: usersMode ? "users" : "rate",
       thinkTimeSec: usersMode ? thinkSec : undefined,

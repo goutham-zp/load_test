@@ -63,6 +63,8 @@ export interface PlanFilters {
   onlyPage?: string;
   onlyEndpoint?: string;
   onlyService?: string;
+  /** Services left out of the load (e.g. one that is already down), listed as excluded in the report. */
+  excludeServices?: string[];
   /** Smoke: base variant only, one request per sample. */
   baseOnly?: boolean;
 }
@@ -79,6 +81,10 @@ export function selectEndpoints(catalog: Catalog, guard: CompiledGuard, f: PlanF
     if (f.onlyPage && !e.pages.includes(f.onlyPage)) continue;
     if (f.onlyEndpoint && !e.key.toLowerCase().includes(f.onlyEndpoint.toLowerCase())) continue;
     if (f.onlyService && e.service !== f.onlyService) continue;
+    if (f.excludeServices?.includes(e.service)) {
+      excluded.push({ key: e.key, reason: `service ${e.service} excluded (--exclude-service)` });
+      continue;
+    }
     if (e.samples.length === 0) {
       const seen = catalog.failures.filter((x) => x.key === e.key).map((x) => (x.status === 0 ? "no response" : `HTTP ${x.status}`));
       excluded.push({ key: e.key, reason: `no successful sample during discovery${seen.length ? ` (${[...new Set(seen)].join(", ")})` : ""}` });

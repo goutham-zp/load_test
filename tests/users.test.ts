@@ -86,6 +86,13 @@ describe("users mode planning", () => {
     expect([...rates.values()].reduce((a, b) => a + b, 0)).toBeCloseTo((7 / 5) * 10, 5);
   });
 
+  it("leave excluded services out of the plan and the journeys, and say why", () => {
+    const plan = buildLoadPlan(catalog, guard, { get: () => ({ pods: 1, key: "token" as const, limits: [], limitsVerified: true, known: true }) }, 1, { excludeServices: ["unknown:fms"] });
+    expect(plan.services).toHaveLength(0);
+    expect(plan.excluded.some((x) => x.reason.includes("excluded (--exclude-service)"))).toBe(true);
+    expect(buildJourneys(catalog, guard, { excludeServices: ["unknown:fms"] })).toHaveLength(0);
+  });
+
   it("raise token-keyed ceilings by the sessions each account has", () => {
     const services = { get: () => ({ pods: 1, key: "token" as const, limits: [{ perSeconds: 1, limit: 10 }], limitsVerified: true, known: true }) };
     const one = buildLoadPlan(catalog, guard, services, 1);

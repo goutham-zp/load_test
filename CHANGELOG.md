@@ -15,6 +15,8 @@ Users mode: load expressed as simultaneous users instead of requests per second.
   with the sessions. The run's start lists each service's expected rate at the peak and flags any above its ceiling.
 - Report, log and `compare` speak in users for users-mode runs (step labels, breaking point, steps table, run
   details with think time and sessions); `compare` warns when the two runs used different modes or think times.
+- **`run --exclude-service a,b`** leaves services out of the load (plan and users-mode journeys), e.g. one that is
+  already down; its endpoints are listed as excluded with the reason. Pages in the browser layer still call it.
 
 ## 0.2.0 — 2026-10-21
 

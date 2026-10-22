@@ -65,7 +65,7 @@ export interface RunMeta {
   versions: { node: string; k6: string; playwright: string };
   catalogCreatedAt: string;
   catalogSignature: string[];
-  filters: { onlyPage?: string; onlyEndpoint?: string; onlyService?: string };
+  filters: { onlyPage?: string; onlyEndpoint?: string; onlyService?: string; excludeServices?: string[] };
   /** Step targets: total req/s ("rate", the default) or virtual users ("users"). */
   stepsPlanned: number[];
   mode?: "rate" | "users";
