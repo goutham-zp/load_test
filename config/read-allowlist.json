@@ -190,8 +190,8 @@
     {
       "method": "POST",
       "path": "/contacts/list$",
-      "note": "contacts list; not seen yet",
-      "reviewed": false
+      "note": "DXP locations detail / FMS. backend: Contacts_API V2 ContactsController.Contacts -> CompanyContactListQuery (companyService.GetCompany, IsDEFTRetailer, contactRepository.GetAll); no writes. Reviewed 2026-10-22.",
+      "reviewed": true
     },
     {
       "method": "POST",
@@ -216,6 +216,54 @@
       "path": "^/fms/v1/relationships/distributors/locations/potential$",
       "note": "FMS_UI distributor dashboard. NOT a pure read: RelationshipService.GetDistributorPotentialRelationshipsList -> ZipCodeLookupService fills missing zip codes from the external API Ninjas and SaveChangesAsync inserts them. Keep blocked.",
       "reviewed": false
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v3/tasks$",
+      "note": "DXP home. backend: Tasks_API v3 TasksController.GetTasks -> TasksV3Query -> TaskService.PortalTasksV2 -> pkg_tasks.get_portal_tasks_v2 (pg_uat, both overloads: no DML, no nested calls). Reviewed 2026-10-22.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/rpc/v3/product-catalog/catalog-feed/product-view$",
+      "note": "DXP my-products. backend: Retailer_Product_Catalog_API (master_postgres) V3 ProductCatalogController.GetCatalogFeedProductView -> CatalogFeedV3ProductViewQuery -> DataApiClient.PullProductCatalogV11RetailerProductView (data-platform product-catalog/apl search) + in-memory upstream cache; no writes. Reviewed 2026-10-22.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/rpc/v3/product-catalog/catalog-feed/vendor-view$",
+      "note": "DXP my-products. backend: as product-view, CatalogFeedV3VendorViewQuery -> PullProductCatalogV11RetailerVendorView; no writes. Reviewed 2026-10-22.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/data-platform/v1/retailer/payment-activity/summary/list$",
+      "note": "DXP payment-activity. backend: VP_Invoices_API RetailerController payment-activity/summary-v2 -> PaymentSummaryLineItemsQueryV2 (filterService.GetFmsServiceAccount, invoiceReadRepo, OpenSearch params); no writes. Reviewed 2026-10-22.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v2\\.1/retailer/scanned-invoices$",
+      "note": "DXP manage-invoices. backend: AP_Api V2.1 InvoiceScanningController.GetScannedDocuments -> GetScannedDocumentsQueryV2_1 (ocrDocumentRepo.GetAll, store/company reads; AutoApproveFailureLogger.ResolveAutoApproveErrors only reads AsNoTracking and annotates the response). Reviewed 2026-10-22.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/retailers/relationships/pending$",
+      "note": "DXP home. backend: Relationship_API V2 RetailersController.Pending -> RetailerPendingRelationshipsQuery (relationshipService/bankingService Get* reads, configuration reads); no writes. Reviewed 2026-10-22.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/billing/v2\\.1/subscriptions/plan-card-features$",
+      "note": "DXP settings/plan. backend: Billing_API V2.1 SubscriptionsController.GetPlanCardFeatures -> GetPlanCardFeaturesQuery -> featureDetailRepo.GetAll; no writes. Reviewed 2026-10-22.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/data-platform/v1/productcatalogsettings/getcategorybyglcode$",
+      "note": "DXP product-catalog. backend: data-productcatalog-api ProductCatalogSettingsController.GetCategorybyGlcode -> DistinctGlcodeQuery -> retailerReadRepository.GetDistinctProductCatalogSettingsWithoutPagedData; no writes. Reviewed 2026-10-22.",
+      "reviewed": true
     }
   ]
 }

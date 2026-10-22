@@ -70,6 +70,11 @@ FMS_UI support (company tokens) next to the DXP.Web retailer portal.
   failures and the discover summary, and in the run report's "endpoints not loaded" with the reason
   `no successful sample during discovery (no response)`; in load runs the browser layer's page breakdown names it.
   A host added to `gatewayBaseUrls` is no longer listed as untracked from an older merged recording.
+- **DXP allowlist (test env):** approved as reads after reading their handlers: `v3/tasks`, `rpc/v3 catalog-feed
+  product-view / vendor-view`, `payment-activity/summary/list`, `v2.1/retailer/scanned-invoices`,
+  `retailers/relationships/pending`, `billing plan-card-features`, `productcatalogsettings/getcategorybyglcode` and
+  `contacts/list`. Still blocked: SignalR negotiate, `users/preferences`, `auditlog/search`, `ap-vendor/relationship`.
+- Discovery no longer lists the app's own web host as an untracked API host (Next.js page-data fetches).
 
 ## 0.1.8 — 2026-10-21
 

@@ -95,7 +95,8 @@ export async function discover(opts: DiscoverOptions): Promise<DiscoverResult> {
     selectors: app.selectors,
     log: (m: string) => log(`    ${m}`),
   };
-  const ignoreHosts = [new URL(env.auth0Domain).host, ...settings.blockedThirdPartyHosts];
+  // The app's own host serves pages (Next.js fetches page data from it); its API paths are in gatewayBaseUrls already.
+  const ignoreHosts = [new URL(env.auth0Domain).host, new URL(env.webBaseUrl).host, ...settings.blockedThirdPartyHosts];
   const untracked = new Map<string, UntrackedHost>();
 
   const browser = await chromium.launch({ headless: !opts.headed });
