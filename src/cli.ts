@@ -26,7 +26,7 @@ Usage: npm run lt -- <command> [options]
 
 Commands
   setup                        Check/install k6 and Playwright Chromium
-  login     --env <name>       Log the users in (headless) and save sessions
+  login     --env <name>       Log the users in (headless) and save sessions [--sessions-per-user N]
   discover  --env <name>       Crawl pages + interactions, record API calls, write the catalog
             [--users user1,user2] [--pages id1,id2] [--max-companies N] [--headed]
             With --users or --pages, the run is merged into the previous catalog
@@ -36,6 +36,11 @@ Commands
             [--label text] [--only-page id | --only-endpoint text | --only-service name]
             [--steps 5,10,25] [--step-duration 180] [--browsers 5]
             [--stop-at-first-break] [--yes]
+            Users mode (instead of --steps): [--vus 100,250,500,1000] [--think-time 10]
+              Each virtual user opens a page (all its recorded calls at once), waits the
+              think time (+-50%) and opens the next. Steps are virtual users, not req/s.
+            [--sessions-per-user N]  Log each account in N times; every login has its own
+              token, so per-token rate limits apply per session as with real users.
   report    <runDir>           Re-render a run's report.html (or a discovery's discovery.html)
   compare   <runDirA> <runDirB> [--out file.html]
   routes    <method> <path>    Show which gateway route/service a path maps to
@@ -52,6 +57,13 @@ async function guardProd(env: EnvConfig, allow: boolean): Promise<void> {
   }
   const typed = await ask(`Hosts ${prod.join(", ")} look like PRODUCTION. Type the env name (${env.name}) to continue:`);
   if (typed !== env.name) throw new Error("Not confirmed.");
+}
+
+function positiveInt(v: string | undefined, flag: string): number | undefined {
+  if (v === undefined) return undefined;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 1) throw new Error(`${flag} must be a whole number, 1 or more.`);
+  return n;
 }
 
 function list(v: unknown): string[] | undefined {
@@ -102,6 +114,9 @@ async function main(): Promise<void> {
       "step-duration": { type: "string" },
       browsers: { type: "string" },
       "stop-at-first-break": { type: "boolean", default: false },
+      vus: { type: "string" },
+      "think-time": { type: "string" },
+      "sessions-per-user": { type: "string" },
       yes: { type: "boolean", default: false },
       out: { type: "string" },
       "allow-prod-like": { type: "boolean", default: false },
@@ -136,7 +151,7 @@ async function main(): Promise<void> {
       const browser = await chromium.launch({ headless: !values.headed });
       try {
         const maxCompanies = values["max-companies"] ? Number(values["max-companies"]) : loadSettings().discovery.maxCompaniesPerUser;
-        await ensureSessions(browser, env, app, envGuard(env, app), users, 0, log, { maxCompanies });
+        await ensureSessions(browser, env, app, envGuard(env, app), users, 0, log, { maxCompanies, sessionsPerUser: positiveInt(values["sessions-per-user"], "--sessions-per-user") });
       } finally {
         await browser.close();
       }
@@ -193,6 +208,12 @@ async function main(): Promise<void> {
       const env = await needEnv();
       const steps = list(values.steps)?.map(Number);
       if (steps?.some((s) => !Number.isFinite(s) || s <= 0)) throw new Error("--steps must be positive numbers, e.g. 5,10,25");
+      const vus = list(values.vus)?.map(Number);
+      if (vus?.some((v) => !Number.isInteger(v) || v <= 0)) throw new Error("--vus must be positive whole numbers, e.g. 100,250,500");
+      if (vus && steps) throw new Error("Use either --steps (req/s) or --vus (virtual users), not both.");
+      const thinkTime = values["think-time"] !== undefined ? Number(values["think-time"]) : undefined;
+      if (thinkTime !== undefined && (!Number.isFinite(thinkTime) || thinkTime < 0)) throw new Error("--think-time must be seconds (0 or more).");
+      if (thinkTime !== undefined && !vus) throw new Error("--think-time only applies with --vus.");
       const only = [values["only-page"], values["only-endpoint"], values["only-service"]].filter(Boolean);
       if (only.length > 1) throw new Error("Use only one of --only-page, --only-endpoint, --only-service.");
       await runLoadTest({
@@ -205,6 +226,9 @@ async function main(): Promise<void> {
         stopAtFirstBreak: values["stop-at-first-break"],
         yes: values.yes,
         log,
+        vus,
+        thinkTimeSec: thinkTime,
+        sessionsPerUser: positiveInt(values["sessions-per-user"], "--sessions-per-user"),
       });
       return;
     }

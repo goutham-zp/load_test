@@ -2,8 +2,17 @@ import type { RunResults, StepRecord } from "../run/results.ts";
 import { fmtRate } from "../util.ts";
 import { badge, esc, fmtMs, fmtNum, fmtPct, lineChart, numTd, page, sparkline, th } from "./html.ts";
 
-export function stepLabel(s: Pick<StepRecord, "index" | "targetRps">): string {
-  return `S${s.index + 1} · ${s.targetRps}/s`;
+/** Step targets are req/s, or virtual users in users mode. */
+export function usersMode(r: Pick<RunResults, "meta">): boolean {
+  return r.meta.mode === "users";
+}
+
+export function targetText(r: Pick<RunResults, "meta">, target: number): string {
+  return usersMode(r) ? `${target} users` : `${target} req/s`;
+}
+
+export function stepLabel(s: Pick<StepRecord, "index" | "targetRps">, users = false): string {
+  return users ? `S${s.index + 1} · ${s.targetRps} users` : `S${s.index + 1} · ${s.targetRps}/s`;
 }
 
 /** The step tables open on: the last healthy step before the system broke, else the last step. */
@@ -15,7 +24,7 @@ export function defaultStep(r: RunResults): number {
 
 function stepSelect(r: RunResults, group: string, selected: number): string {
   const opts = r.steps
-    .map((s) => `<option value="${s.index}"${s.index === selected ? " selected" : ""}>Step ${s.index + 1} — target ${s.targetRps} req/s${r.systemBreak?.step === s.index ? " (system broke)" : ""}</option>`)
+    .map((s) => `<option value="${s.index}"${s.index === selected ? " selected" : ""}>Step ${s.index + 1} — ${usersMode(r) ? `${s.targetRps} virtual users` : `target ${s.targetRps} req/s`}${r.systemBreak?.step === s.index ? " (system broke)" : ""}</option>`)
     .join("");
   return `<label>Load step <select data-step-target="${group}">${opts}</select></label>`;
 }
@@ -38,7 +47,7 @@ function headline(r: RunResults): string {
   const tiles = [
     {
       label: "System breaking point",
-      value: sb ? `Step ${sb.step + 1} · ${sb.targetRps} req/s` : "Not reached",
+      value: sb ? `Step ${sb.step + 1} · ${targetText(r, sb.targetRps)}` : "Not reached",
       note: sb ? `First to break: ${sb.services.join(", ")}` : "No service broke within the steps run",
     },
     { label: "Services broke / at ceiling", value: `${broken} / ${capped}`, note: `of ${r.services.length} services loaded` },
@@ -51,7 +60,7 @@ function headline(r: RunResults): string {
 }
 
 function charts(r: RunResults): string {
-  const labels = r.steps.map(stepLabel);
+  const labels = r.steps.map((s) => stepLabel(s, usersMode(r)));
   const markers = r.systemBreak ? [{ index: r.steps.findIndex((s) => s.index === r.systemBreak!.step), label: "system broke" }] : [];
   return `<div class="charts">
 ${lineChart({
@@ -81,7 +90,7 @@ ${lineChart({
 }
 
 function servicesTable(r: RunResults): string {
-  const labels = r.steps.map(stepLabel);
+  const labels = r.steps.map((s) => stepLabel(s, usersMode(r)));
   const rows = r.plan.services
     .map((svc) => {
       const st = r.services.find((s) => s.name === svc.name);
@@ -207,7 +216,7 @@ ${numTd(s.runner.cpuMax, `${s.runner.cpuMax}%`, s.runner.cpuMax >= 85 ? "worse" 
 </tr>`)
     .join("");
   return `<div class="table-wrap"><table class="sortable"><thead><tr>
-${th("Step")}${th("Target req/s", "num")}${th("Achieved req/s", "num")}${th("Requests", "num")}${th("p50", "num")}${th("p95", "num")}${th("Errors", "num")}${th("429", "num")}${th("Runner CPU max", "num")}${th("Broke in this step")}
+${th("Step")}${th(usersMode(r) ? "Virtual users" : "Target req/s", "num")}${th("Achieved req/s", "num")}${th("Requests", "num")}${th("p50", "num")}${th("p95", "num")}${th("Errors", "num")}${th("429", "num")}${th("Runner CPU max", "num")}${th("Broke in this step")}
 </tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
@@ -218,7 +227,13 @@ function metaBlock(r: RunResults): string {
     ["Started / ended", `${m.startedAt} → ${m.endedAt}`],
     ["Runner", `${m.runner.host} · ${m.runner.platform} · ${m.runner.cpus} CPUs · ${m.runner.memGb} GB`],
     ["Versions", `node ${m.versions.node} · ${m.versions.k6} · playwright ${m.versions.playwright}`],
-    ["Steps", `${m.stepsPlanned.join(", ")} req/s × ${m.stepDurationSec}s`],
+    [
+      "Steps",
+      m.mode === "users"
+        ? `${m.stepsPlanned.join(", ")} virtual users × ${m.stepDurationSec}s, ${m.thinkTimeSec ?? "?"}s think time between pages`
+        : `${m.stepsPlanned.join(", ")} req/s × ${m.stepDurationSec}s`,
+    ],
+    ["Sessions per user", String(m.sessionsPerUser ?? 1)],
     ["Break rule", `error rate > ${fmtPct(m.breakRules.errorRate)} or p95 > ${fmtMs(m.breakRules.p95Ms)} (min ${m.breakRules.minRequests} requests)`],
     ["App", m.app ?? "retailer"],
     ["Users / browsers", `${m.users} / ${m.browsers}`],

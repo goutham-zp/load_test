@@ -37,7 +37,7 @@ export interface ServicePlan {
   name: string;
   endpoints: string[];
   users: string[];
-  /** Distinct API tokens with samples: the rate-limit multiplier for token-keyed services. */
+  /** API tokens with samples, times sessions per user: the rate-limit multiplier for token-keyed services. */
   tokens: number;
   cap: number;
   limitsVerified: boolean;
@@ -50,6 +50,13 @@ export interface LoadPlan {
   services: ServicePlan[];
   /** Endpoints left out, with the reason. */
   excluded: { key: string; reason: string }[];
+}
+
+/** One page as a virtual user opens it: the page's recorded API calls, all with one token. */
+export interface Journey {
+  page: string;
+  token: string;
+  requests: (PlannedRequest & { svc: string })[];
 }
 
 export interface PlanFilters {
@@ -144,7 +151,8 @@ export function buildLoadPlan(
   guard: CompiledGuard,
   services: ResolvedServices,
   safety: number,
-  filters: PlanFilters = {}
+  filters: PlanFilters = {},
+  sessionsPerUser = 1
 ): LoadPlan {
   const { selected, excluded } = selectEndpoints(catalog, guard, filters);
   const byService = new Map<string, CatalogEndpoint[]>();
@@ -158,7 +166,7 @@ export function buildLoadPlan(
   for (const [name, endpoints] of [...byService.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     const cfg = services.get(name);
     const users = [...new Set(endpoints.flatMap((e) => e.samples.map((s) => s.user)))].sort();
-    const tokens = new Set(endpoints.flatMap((e) => e.samples.map((s) => tokenKeyFor(scope, s.user, s.companyId)))).size;
+    const tokens = new Set(endpoints.flatMap((e) => e.samples.map((s) => tokenKeyFor(scope, s.user, s.companyId)))).size * Math.max(1, sessionsPerUser);
     const slots = filters.baseOnly
       ? endpoints.flatMap((e) => endpointSequence(e, true, scope))
       : interleave(endpoints.map((e) => endpointSequence(e, false, scope)));
@@ -196,5 +204,55 @@ export function stepRates(plan: LoadPlan, totalRps: number, held: Map<string, nu
     const rate = Math.min(wanted, s.cap);
     out.set(s.name, { rate, wanted, capped: wanted > s.cap, held: false });
   }
+  return out;
+}
+
+const MAX_JOURNEYS_PER_PAGE_AND_TOKEN = 3;
+
+/**
+ * Journeys for the users mode: for every reached page and every token that has samples on it, the page's replayable
+ * endpoints with that token's samples (base variant). Up to 3 per page and token, rotating samples, so repeated visits
+ * don't all ask for the same record.
+ */
+export function buildJourneys(catalog: Catalog, guard: CompiledGuard, filters: PlanFilters = {}): Journey[] {
+  const { selected } = selectEndpoints(catalog, guard, filters);
+  const byKey = new Map(selected.map((e) => [e.key, e]));
+  const scope = catalog.tokenScope ?? "user";
+  const out: Journey[] = [];
+  for (const page of catalog.pages.filter((p) => p.reached && (!filters.onlyPage || p.id === filters.onlyPage))) {
+    const endpoints = page.endpoints.map((k) => byKey.get(k)).filter((e): e is CatalogEndpoint => !!e);
+    const tokens = [...new Set(endpoints.flatMap((e) => e.samples.map((s) => tokenKeyFor(scope, s.user, s.companyId))))].sort();
+    for (const token of tokens) {
+      const perEndpoint = endpoints
+        .map((e) => ({ e, list: e.samples.filter((s) => tokenKeyFor(scope, s.user, s.companyId) === token) }))
+        .filter((x) => x.list.length > 0);
+      const rounds = Math.min(MAX_JOURNEYS_PER_PAGE_AND_TOKEN, Math.max(...perEndpoint.map((x) => x.list.length)));
+      for (let i = 0; i < rounds; i++) {
+        out.push({
+          page: page.id,
+          token,
+          requests: perEndpoint.map(({ e, list }) => {
+            const sample = list[i % list.length]!;
+            const { url, body } = applyVariant(sample, e.variants[0] ?? { label: "base", set: [] });
+            return { svc: e.service, tpl: e.key, variant: "base", user: sample.user, token, method: e.method, url, body, headers: sample.headers, allowlisted: !READ.has(e.method) };
+          }),
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Rough requests per second each service gets from `vus` virtual users that open a random page, wait for its calls
+ * and think `thinkSec` (plus ~1s for the calls themselves) before the next one.
+ */
+export function estimateUserRates(journeys: Journey[], vus: number, thinkSec: number): Map<string, number> {
+  const out = new Map<string, number>();
+  if (journeys.length === 0) return out;
+  const perJourney = new Map<string, number>();
+  for (const j of journeys) for (const r of j.requests) perJourney.set(r.svc, (perJourney.get(r.svc) ?? 0) + 1);
+  const pageViewsPerSec = vus / (thinkSec + 1);
+  for (const [svc, calls] of perJourney) out.set(svc, (calls / journeys.length) * pageViewsPerSec);
   return out;
 }

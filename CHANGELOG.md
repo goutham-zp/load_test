@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0 — 2026-10-22
+
+Users mode: load expressed as simultaneous users instead of requests per second.
+
+- **`run --vus 100,250,500,1000 [--think-time 10]`.** Each step runs that many k6 virtual users. Each one opens a
+  page (all of the page's recorded calls at once, as a browser does), waits the think time (+-50%) and opens the next.
+  Pages come from the catalog's reached pages ("journeys": one per page and token, rotating samples), so no new
+  discovery or smoke is needed. Services are judged on the rate they actually got; one that breaks keeps getting what
+  the users send (it can't be held back), and the report and log say at how many users it broke.
+- **`--sessions-per-user N`** (run and login). Each account logs in N times; every login has its own token, which the
+  services' per-token rate limits (`ClientIdHeader: Authorization`) treat as a separate client, as with real users.
+  k6 rotates the tokens (users mode: each virtual user keeps one session); ceilings of token-keyed services scale
+  with the sessions. The run's start lists each service's expected rate at the peak and flags any above its ceiling.
+- Report, log and `compare` speak in users for users-mode runs (step labels, breaking point, steps table, run
+  details with think time and sessions); `compare` warns when the two runs used different modes or think times.
+
 ## 0.2.0 — 2026-10-21
 
 FMS_UI support (company tokens) next to the DXP.Web retailer portal.
@@ -79,6 +95,8 @@ FMS_UI support (company tokens) next to the DXP.Web retailer portal.
   (a catalog copied to a server whose `.env` has fewer users), naming the missing `LT_USER_<n>` variables. Before,
   only the found users logged in and the error blamed lost company access.
 - `smoke.json` lists each failing page's failed API calls (method, URL, status), not just a count.
+- Saved logins remember the account's email and are not reused when `.env` maps the user key to another account
+  (a machine whose `LT_USER_1` differs from the one discovery used logged in the wrong account and got 400s).
 
 ## 0.1.8 — 2026-10-21
 

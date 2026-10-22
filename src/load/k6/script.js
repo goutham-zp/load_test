@@ -1,6 +1,7 @@
 // k6 script for one load step. All planning happens in Node; this file only replays planned requests.
 // Inputs (env): LT_PLAN (slots per service), LT_PLAN_INDEX (service names and slot counts), LT_STEP (rates, duration,
-// mode), LT_TOKENS (user -> token), LT_SUMMARY.
+// mode), LT_TOKENS (token key -> token, or a list when an account has several sessions), LT_SUMMARY.
+// Users mode adds LT_JOURNEYS (pages with their calls) and LT_JOURNEYS_INDEX (journey numbers per token key).
 import http from "k6/http";
 import exec from "k6/execution";
 import { sleep } from "k6";
@@ -15,13 +16,26 @@ const slotsByService = plan.services.map(
 );
 const step = JSON.parse(open(__ENV.LT_STEP));
 const tokens = JSON.parse(open(__ENV.LT_TOKENS));
+const usersMode = step.mode === "users";
+const journeyIndex = usersMode ? JSON.parse(open(__ENV.LT_JOURNEYS_INDEX)) : null;
+const journeys = usersMode ? new SharedArray("journeys", () => JSON.parse(open(__ENV.LT_JOURNEYS)).journeys) : null;
 
 const READ_METHODS = { GET: true, HEAD: true, OPTIONS: true };
 const throttled = new Counter("lt_throttled");
 const refused = new Counter("lt_refused");
 
 const scenarios = {};
+if (usersMode) {
+  scenarios.users = {
+    executor: "constant-vus",
+    vus: step.vus,
+    duration: `${step.durationSec}s`,
+    gracefulStop: "15s",
+    exec: "user",
+  };
+}
 plan.services.forEach((svc, idx) => {
+  if (usersMode) return;
   const rps = step.rates[svc.name] || 0;
   if (rps <= 0 || svc.slots === 0) return;
   const env = { LT_SVC: String(idx) };
@@ -64,6 +78,20 @@ function headerValue(headers, name) {
   return undefined;
 }
 
+// A token key's token; with several sessions per account, `n` picks which one (rotating).
+function tokenFor(key, n) {
+  const t = tokens[key];
+  return Array.isArray(t) ? t[n % t.length] : t;
+}
+
+function noteThrottle(res, svcName, tpl) {
+  if (res.status !== 429) return;
+  let source = "unknown";
+  if (headerValue(res.headers, "X-RateLimit-Limit") || headerValue(res.headers, "RateLimit-Limit")) source = "gateway";
+  else if (headerValue(res.headers, "Retry-After")) source = "service";
+  throttled.add(1, { svc: svcName, tpl, source });
+}
+
 function send(slotIndex) {
   const idx = Number(__ENV.LT_SVC);
   const svc = plan.services[idx];
@@ -74,22 +102,50 @@ function send(slotIndex) {
     return;
   }
   // slot.token is the user, or user|company when each company has its own token (plans before it existed: user).
-  const headers = Object.assign({}, slot.headers, { Authorization: "Bearer " + tokens[slot.token || slot.user] });
+  const headers = Object.assign({}, slot.headers, { Authorization: "Bearer " + tokenFor(slot.token || slot.user, exec.scenario.iterationInTest) });
   const res = http.request(slot.method, slot.url, slot.body === undefined ? null : slot.body, {
     headers,
     timeout: `${step.timeoutSec}s`,
     tags: { svc: svc.name, tpl: slot.tpl, variant: slot.variant, user: slot.user },
   });
-  if (res.status === 429) {
-    let source = "unknown";
-    if (headerValue(res.headers, "X-RateLimit-Limit") || headerValue(res.headers, "RateLimit-Limit")) source = "gateway";
-    else if (headerValue(res.headers, "Retry-After")) source = "service";
-    throttled.add(1, { svc: svc.name, tpl: slot.tpl, source });
-  }
+  noteThrottle(res, svc.name, slot.tpl);
 }
 
 export function load() {
   send(exec.scenario.iterationInTest);
+}
+
+// Users mode: each virtual user keeps one account session (VUs spread over token keys, then over sessions), opens a
+// page by sending all its recorded calls at once (as a browser does), then waits the think time (+-50%) and repeats.
+export function user() {
+  const vu = exec.vu.idInTest - 1;
+  const keys = journeyIndex.tokens;
+  const key = keys[vu % keys.length];
+  const session = Math.floor(vu / keys.length);
+  const mine = journeyIndex.byToken[key];
+  const journey = journeys[mine[(exec.vu.iterationInScenario + vu) % mine.length]];
+  const batch = [];
+  const sent = [];
+  for (const r of journey.requests) {
+    if (!READ_METHODS[r.method] && !r.allowlisted) {
+      refused.add(1, { svc: r.svc, tpl: r.tpl });
+      continue;
+    }
+    batch.push({
+      method: r.method,
+      url: r.url,
+      body: r.body === undefined ? null : r.body,
+      params: {
+        headers: Object.assign({}, r.headers, { Authorization: "Bearer " + tokenFor(key, session) }),
+        timeout: `${step.timeoutSec}s`,
+        tags: { svc: r.svc, tpl: r.tpl, variant: r.variant, user: r.user, page: journey.page },
+      },
+    });
+    sent.push(r);
+  }
+  const responses = http.batch(batch);
+  responses.forEach((res, i) => noteThrottle(res, sent[i].svc, sent[i].tpl));
+  sleep(step.thinkSec * (0.5 + Math.random()));
 }
 
 export function smoke() {

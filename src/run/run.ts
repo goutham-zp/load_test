@@ -12,8 +12,8 @@ import { envHosts, hostsOutsideEnv } from "../config/safety.ts";
 import type { AppProfile, EnvConfig, User } from "../config/types.ts";
 import { envMatcher } from "../gateway/routes.ts";
 import { envGuard } from "../guard/readonly.ts";
-import { parseK6Output, startK6, writePlanFile, type K6Handle } from "../load/k6runner.ts";
-import { buildLoadPlan, stepRates, type LoadPlan, type PlanFilters } from "../load/plan.ts";
+import { parseK6Output, startK6, writeJourneysFile, writePlanFile, type K6Handle } from "../load/k6runner.ts";
+import { buildJourneys, buildLoadPlan, estimateUserRates, stepRates, type LoadPlan, type PlanFilters } from "../load/plan.ts";
 import { catalogDir, dirs, expandHome } from "../paths.ts";
 import { renderRunReport } from "../report/runReport.ts";
 import { confirm, fmtRate, k6Version, playwrightVersion, slug, timestamp } from "../util.ts";
@@ -32,7 +32,14 @@ export interface RunOptions {
   stopAtFirstBreak: boolean;
   yes: boolean;
   log: (m: string) => void;
+  /** Users mode: virtual users per step (replaces steps), each opening pages with thinkTimeSec between them. */
+  vus?: number[];
+  thinkTimeSec?: number;
+  /** Logins per account; each has its own token and so its own per-token rate-limit bucket. */
+  sessionsPerUser?: number;
 }
+
+export const DEFAULT_THINK_TIME_SEC = 10;
 
 export function loadCatalog(env: Pick<EnvConfig, "name" | "webBaseUrl" | "gatewayBaseUrls">, app?: AppProfile): Catalog {
   const file = path.join(catalogDir(env.name), "catalog.json");
@@ -85,7 +92,7 @@ export function catalogCompanies(catalog: Catalog): Record<string, string[]> | u
 
 /** Fails before any load is sent when a planned request has no token (a company the user can no longer open). */
 export function assertTokensFor(plan: LoadPlan, sessions: Record<string, UserSession>): void {
-  const have = new Set(Object.values(sessions).map((s) => s.key));
+  const have = new Set(Object.values(sessions).map((s) => s.tokenKey ?? s.key));
   const missing = [...new Set(plan.services.flatMap((s) => s.slots.map((r) => r.token)))].filter((k) => !have.has(k));
   if (missing.length) {
     throw new Error(`No login for ${missing.length} planned token(s): ${missing.slice(0, 5).join(", ")}. The users may have lost access to these companies; run discover again.`);
@@ -117,7 +124,12 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
   if (users.length === 0) throw new Error("None of the catalog's users are configured in .env.");
   const guard = envGuard(env, app);
   const services = loadServices(env);
-  const plan = buildLoadPlan(catalog, guard, services, settings.load.safetyFactor, opts.filters);
+  const sessionsPerUser = Math.max(1, opts.sessionsPerUser ?? 1);
+  const usersMode = !!opts.vus?.length;
+  const thinkSec = opts.thinkTimeSec ?? DEFAULT_THINK_TIME_SEC;
+  const plan = buildLoadPlan(catalog, guard, services, settings.load.safetyFactor, opts.filters, sessionsPerUser);
+  const journeys = usersMode ? buildJourneys(catalog, guard, opts.filters) : [];
+  if (usersMode && journeys.length === 0) throw new Error("Users mode: no reached page has replayable calls to visit.");
   if (plan.services.length === 0) {
     const services = [...new Set(catalog.endpoints.map((e) => e.service))].sort().join(", ");
     const pages = catalog.pages.filter((p) => p.reached).map((p) => p.id).join(", ");
@@ -125,15 +137,24 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
   }
   const matcher = envMatcher(env, settings.gatewayConfigDir);
 
-  const steps = opts.steps ?? settings.load.stepsRps;
+  const steps = usersMode ? opts.vus! : (opts.steps ?? settings.load.stepsRps);
+  const unit = usersMode ? "users" : "req/s";
   const stepDurationSec = opts.stepDurationSec ?? settings.load.stepDurationSec;
   const browsers = opts.browsers ?? settings.browser.workers;
 
   log(`Environment: ${env.name} (${env.kind}, app ${app.name})  hosts: ${envHosts(env).join(", ")}`);
-  log(`Users: ${users.length}  endpoints: ${plan.totalEndpoints}  services: ${plan.services.length}  browsers: ${browsers}`);
-  log(`Steps (total req/s): ${steps.join(", ")}  x ${stepDurationSec}s each  -> up to ~${Math.round((steps.length * (stepDurationSec + 30)) / 60)} min`);
+  log(`Users: ${users.length}${sessionsPerUser > 1 ? ` x ${sessionsPerUser} sessions` : ""}  endpoints: ${plan.totalEndpoints}  services: ${plan.services.length}  browsers: ${browsers}`);
+  if (usersMode) {
+    log(`Steps (virtual users): ${steps.join(", ")}  x ${stepDurationSec}s each, ${thinkSec}s think time between pages, ${journeys.length} page journeys  -> up to ~${Math.round((steps.length * (stepDurationSec + 30)) / 60)} min`);
+  } else {
+    log(`Steps (total req/s): ${steps.join(", ")}  x ${stepDurationSec}s each  -> up to ~${Math.round((steps.length * (stepDurationSec + 30)) / 60)} min`);
+  }
+  // Users mode sends whatever the users cause; show where the peak would pass a service's per-token ceiling (429s).
+  const peak = usersMode ? estimateUserRates(journeys, Math.max(...steps), thinkSec) : undefined;
   for (const s of plan.services) {
-    log(`  ${s.name.padEnd(42)} endpoints=${String(s.endpoints.length).padStart(3)} users=${s.users.length}${s.tokens !== s.users.length ? ` tokens=${s.tokens}` : ""} cap=${fmtRate(s.cap)} req/s${s.limitsVerified ? "" : " (limit unverified)"}`);
+    const est = peak?.get(s.name);
+    const over = est !== undefined && est > s.cap;
+    log(`  ${s.name.padEnd(42)} endpoints=${String(s.endpoints.length).padStart(3)} users=${s.users.length}${s.tokens !== s.users.length ? ` tokens=${s.tokens}` : ""} cap=${fmtRate(s.cap)} req/s${est !== undefined ? `  ~${fmtRate(est)} req/s at ${Math.max(...steps)} users${over ? "  ABOVE CEILING: expect 429s (more --sessions-per-user)" : ""}` : ""}${s.limitsVerified ? "" : " (limit unverified)"}`);
   }
   if (plan.excluded.length) log(`Excluded endpoints: ${plan.excluded.length} (listed in the report)`);
   if (!opts.yes && !(await confirm("Start the load test? [y/N]"))) throw new Error("Cancelled.");
@@ -141,6 +162,7 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
   const runDir = path.join(dirs.runs, `${timestamp()}-${env.name}${opts.label ? "-" + slug(opts.label) : ""}`);
   fs.mkdirSync(runDir, { recursive: true });
   const planFile = writePlanFile(runDir, plan);
+  if (usersMode) writeJourneysFile(runDir, journeys);
   const startedAt = new Date().toISOString();
 
   const browser = await chromium.launch({ headless: true });
@@ -172,7 +194,7 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
 
   try {
     const horizon = stepDurationSec + 120 + settings.tokenRefreshMarginSec;
-    const ensureOpts = { companies: catalogCompanies(catalog) };
+    const ensureOpts = { companies: catalogCompanies(catalog), sessionsPerUser };
     let sessions = await ensureSessions(browser, env, app, guard, users, horizon, log, ensureOpts);
     assertTokensFor(plan, sessions);
     if (browsers > 0) {
@@ -197,13 +219,20 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
       sessions = await ensureSessions(browser, env, app, guard, users, horizon, log, ensureOpts);
       assertTokensFor(plan, sessions);
       const tokensFile = writeK6Tokens(env.name, sessions);
-      const rates = stepRates(plan, steps[i]!, held);
+      // Users mode: "rates" are only the expected request rates (the users decide); nothing is capped or held.
+      const rates = usersMode
+        ? new Map([...estimateUserRates(journeys, steps[i]!, thinkSec)].map(([k, r]) => [k, { rate: r, wanted: r, capped: false, held: false }]))
+        : stepRates(plan, steps[i]!, held);
       const totalRate = [...rates.values()].reduce((a, r) => a + r.rate, 0);
       if (totalRate <= 0) {
         endReason = "no service left to load";
         break;
       }
-      log(`Step ${i + 1}/${steps.length}: target ${steps[i]} req/s, actual planned ${fmtRate(totalRate)} req/s for ${stepDurationSec}s`);
+      log(
+        usersMode
+          ? `Step ${i + 1}/${steps.length}: ${steps[i]} virtual users (~${fmtRate(totalRate)} req/s expected) for ${stepDurationSec}s`
+          : `Step ${i + 1}/${steps.length}: target ${steps[i]} req/s, actual planned ${fmtRate(totalRate)} req/s for ${stepDurationSec}s`
+      );
 
       const stepDir = path.join(runDir, `step-${String(i + 1).padStart(2, "0")}`);
       health.reset();
@@ -211,7 +240,9 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
       const stepStart = new Date().toISOString();
       if (layer) layer.active = true;
       current = startK6(stepDir, planFile, tokensFile, {
-        mode: "load",
+        mode: usersMode ? "users" : "load",
+        vus: usersMode ? steps[i] : undefined,
+        thinkSec: usersMode ? thinkSec : undefined,
         rates: Object.fromEntries([...rates].map(([k, v]) => [k, v.rate])),
         durationSec: stepDurationSec,
         timeoutSec: settings.load.requestTimeoutSec,
@@ -233,11 +264,18 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
         .filter((s) => (rates.get(s.name)?.rate ?? 0) > 0)
         .map((s) => {
           const r = rates.get(s.name)!;
-          return { name: s.name, rate: r.rate, capped: r.capped, held: r.held, stats: result.services.get(s.name) ?? emptyStats() };
+          const stats = result.services.get(s.name) ?? emptyStats();
+          // Users mode: judge the rate the service actually got.
+          return { name: s.name, rate: usersMode ? stats.rps : r.rate, capped: r.capped, held: r.held, stats };
         });
       const { newlyBroken } = advanceStates(states, i, outcomes, settings.break);
       for (const name of newlyBroken) {
         const st = states.get(name)!;
+        if (usersMode) {
+          // Every page that calls it keeps calling it: it can't be held back without changing what users do.
+          log(`  BROKE: ${name} at ${steps[i]} users (${fmtRate(st.brokeAtRate ?? 0)} req/s, ${st.reasons.join(", ")})`);
+          continue;
+        }
         held.set(name, st.heldRate ?? 0);
         log(`  BROKE: ${name} at ${fmtRate(st.brokeAtRate ?? 0)} req/s (${st.reasons.join(", ")}); holding at ${fmtRate(st.heldRate ?? 0)} req/s`);
       }
@@ -339,6 +377,9 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
       catalogSignature: catalogSignature(catalog),
       filters: { onlyPage: opts.filters.onlyPage, onlyEndpoint: opts.filters.onlyEndpoint, onlyService: opts.filters.onlyService },
       stepsPlanned: steps,
+      mode: usersMode ? "users" : "rate",
+      thinkTimeSec: usersMode ? thinkSec : undefined,
+      sessionsPerUser,
       stepDurationSec,
       browsers,
       users: users.length,
@@ -359,7 +400,7 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
   writeJson(path.join(runDir, "results.json"), results);
   fs.writeFileSync(path.join(runDir, "report.html"), renderRunReport(results));
   log(`Finished: ${results.meta.endReason}`);
-  if (systemBreak) log(`System breaking point: step ${systemBreak.step + 1} (${systemBreak.targetRps} req/s target), first to break: ${systemBreak.services.join(", ")}`);
+  if (systemBreak) log(`System breaking point: step ${systemBreak.step + 1} (${systemBreak.targetRps} ${unit}), first to break: ${systemBreak.services.join(", ")}`);
   log(`Report: ${path.join(runDir, "report.html")}`);
   return runDir;
 }

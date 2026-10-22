@@ -66,6 +66,11 @@ function mismatches(a: RunResults, b: RunResults): string[] {
   const onlyA = [...sa].filter((k) => !sb.has(k));
   const onlyB = [...sb].filter((k) => !sa.has(k));
   if (onlyA.length || onlyB.length) out.push(`Different endpoint sets: ${onlyA.length} only in A, ${onlyB.length} only in B. Totals are not like-for-like; compare per endpoint.`);
+  if ((a.meta.mode ?? "rate") !== (b.meta.mode ?? "rate")) {
+    out.push(`Different load modes (A ${a.meta.mode ?? "rate"}, B ${b.meta.mode ?? "rate"}): steps are virtual users in one and req/s in the other, so step-by-step numbers are not comparable.`);
+  } else if (a.meta.mode === "users" && a.meta.thinkTimeSec !== b.meta.thinkTimeSec) {
+    out.push(`Different think times (A ${a.meta.thinkTimeSec}s, B ${b.meta.thinkTimeSec}s): the same user count sends different request rates.`);
+  }
   if (a.meta.stepsPlanned.join() !== b.meta.stepsPlanned.join()) out.push(`Different step plans (A: ${a.meta.stepsPlanned.join(", ")}; B: ${b.meta.stepsPlanned.join(", ")}). Only matching target rates are compared.`);
   if (a.meta.stepDurationSec !== b.meta.stepDurationSec) out.push(`Different step durations (A ${a.meta.stepDurationSec}s, B ${b.meta.stepDurationSec}s).`);
   if (a.meta.runner.host !== b.meta.runner.host) out.push(`Different runners (A ${a.meta.runner.host}, B ${b.meta.runner.host}): network distance differs, so latency differences may be partly the network.`);

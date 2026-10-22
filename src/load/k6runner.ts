@@ -6,11 +6,15 @@ import zlib from "node:zlib";
 import { StatsBuilder, type Stats } from "../analysis/stats.ts";
 import { writeJson } from "../config/load.ts";
 import { dirs } from "../paths.ts";
-import type { LoadPlan } from "./plan.ts";
+import type { Journey, LoadPlan } from "./plan.ts";
 
 export interface StepInput {
-  mode: "load" | "smoke";
+  /** load: requests per second per service. smoke: each slot once. users: `vus` virtual users opening pages. */
+  mode: "load" | "smoke" | "users";
   rates: Record<string, number>;
+  /** Users mode: virtual users in this step and seconds each waits between pages (varied +-50%). */
+  vus?: number;
+  thinkSec?: number;
   durationSec: number;
   timeoutSec: number;
   maxVUs: number;
@@ -27,6 +31,19 @@ export function writePlanFile(runDir: string, plan: LoadPlan): string {
   const file = path.join(runDir, "plan.json");
   writeJson(file, { services: plan.services.map((s) => ({ name: s.name, slots: s.slots })) });
   writeJson(planIndexFile(file), { services: plan.services.map((s) => ({ name: s.name, slots: s.slots.length })) });
+  return file;
+}
+
+/**
+ * Users mode: the journeys (journeys.json, loaded once into a SharedArray) and a small index of journey numbers per
+ * token (journeys-index.json), next to plan.json. Contains no tokens.
+ */
+export function writeJourneysFile(runDir: string, journeys: Journey[]): string {
+  const file = path.join(runDir, "journeys.json");
+  writeJson(file, { journeys });
+  const byToken: Record<string, number[]> = {};
+  journeys.forEach((j, i) => (byToken[j.token] ??= []).push(i));
+  writeJson(file.replace(/\.json$/, "-index.json"), { tokens: Object.keys(byToken).sort(), byToken });
   return file;
 }
 
@@ -48,7 +65,15 @@ export function startK6(stepDir: string, planFile: string, tokensFile: string, i
   const outFile = path.join(stepDir, "k6.json.gz");
   const summaryFile = path.join(stepDir, "k6-summary.json");
   const child = spawn("k6", ["run", "--quiet", "--no-usage-report", "--out", `json=${outFile}`, dirs.k6Script], {
-    env: { ...process.env, LT_PLAN: planFile, LT_PLAN_INDEX: planIndexFile(planFile), LT_STEP: stepFile, LT_TOKENS: tokensFile, LT_SUMMARY: summaryFile },
+    env: {
+      ...process.env,
+      LT_PLAN: planFile,
+      LT_PLAN_INDEX: planIndexFile(planFile),
+      LT_STEP: stepFile,
+      LT_TOKENS: tokensFile,
+      LT_SUMMARY: summaryFile,
+      ...(input.mode === "users" ? { LT_JOURNEYS: path.join(path.dirname(planFile), "journeys.json"), LT_JOURNEYS_INDEX: path.join(path.dirname(planFile), "journeys-index.json") } : {}),
+    },
     stdio: ["ignore", "pipe", "pipe"],
     // Own process group: a terminal Ctrl-C reaches only us, and we forward exactly one SIGINT to k6.
     detached: true,
