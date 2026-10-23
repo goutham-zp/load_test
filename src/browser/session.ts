@@ -143,6 +143,23 @@ export async function runPool<T>(tasks: (() => Promise<T>)[], limit: number): Pr
   return results;
 }
 
+/**
+ * Runs `task`, and once more if it fails with an error `retryable` accepts (e.g. a slow login page, not a wrong
+ * password, which retrying could lock out).
+ */
+export async function retryOnce<T>(task: () => Promise<T>, retryable: (e: Error) => boolean, onRetry: (e: Error) => void): Promise<T> {
+  try {
+    return await task();
+  } catch (e) {
+    if (!(e instanceof Error) || !retryable(e)) throw e;
+    onRetry(e);
+    return await task();
+  }
+}
+
+/** True for login failures worth a second try: anything except Auth0 rejecting the credentials. */
+export const retryableLoginError = (e: Error) => !e.message.startsWith("Auth0 rejected");
+
 /** The label a session's login runs under: the user for the first, user#n for the others (files, keys). */
 export function sessionLabel(user: string, sessionNo: number): string {
   return sessionNo === 1 ? user : `${user}#${sessionNo}`;
@@ -221,7 +238,16 @@ export async function ensureSessions(
       }
       saveSessions(env.name, sessions);
   };
-  const results = await runPool(todo.map((t) => () => loginOne(t)), limit);
+  const results = await runPool(
+    todo.map((t) => () =>
+      retryOnce(
+        () => loginOne(t),
+        retryableLoginError,
+        (e) => log(`${sessionLabel(t.user.key, t.n)}: login failed (${e.message.split("\n")[0]}); trying once more`)
+      )
+    ),
+    limit
+  );
   // Logins of one account that finished in the same second got the same token: redo those, staggered, until distinct.
   for (let round = 1; round <= 3; round++) {
     const dups = duplicateTokenSessions(sessions);

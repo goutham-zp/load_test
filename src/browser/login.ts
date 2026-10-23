@@ -23,6 +23,12 @@ async function submit(page: Page): Promise<void> {
 }
 
 /**
+ * How long the first login screen may take. The app's login page loads its scripts before redirecting to Auth0; on test
+ * (23 Oct 2026) that took 30 s to over 60 s because its script files downloaded slowly ("Loading your experience").
+ */
+export const LOGIN_PAGE_WAIT_MS = 180_000;
+
+/**
  * Fills username-only screens until a password field shows, then the password. Covers Auth0 classic (both fields),
  * identifier-first (username, then password) and an app's own username page in front of Auth0 (FMS_UI /login).
  */
@@ -30,11 +36,13 @@ export async function fillLoginForms(page: Page, user: User): Promise<void> {
   const username = page.locator(USERNAME).first();
   const password = page.locator(PASSWORD).first();
   for (let round = 0; round < 4; round++) {
+    const wait = round === 0 ? LOGIN_PAGE_WAIT_MS : 60_000;
     await Promise.any([
-      username.waitFor({ state: "visible", timeout: 60_000 }),
-      password.waitFor({ state: "visible", timeout: 60_000 }),
-    ]).catch(() => {
-      throw new Error(`${user.key}: no login form appeared within 60s. Last URL: ${page.url()}`);
+      username.waitFor({ state: "visible", timeout: wait }),
+      password.waitFor({ state: "visible", timeout: wait }),
+    ]).catch(async () => {
+      const shows = (await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "")).replace(/\s+/g, " ").trim().slice(0, 120);
+      throw new Error(`${user.key}: no login form appeared within ${wait / 1000}s. Last URL: ${page.url()}${shows ? ` (page shows: "${shows}")` : ""}`);
     });
     if (await username.isVisible().catch(() => false)) {
       if ((await username.inputValue().catch(() => "")) !== user.email) await username.fill(user.email);

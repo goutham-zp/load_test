@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { duplicateTokenSessions, k6Tokens, runPool, sessionLabel, type UserSession } from "../src/browser/session.ts";
+import { duplicateTokenSessions, k6Tokens, retryableLoginError, retryOnce, runPool, sessionLabel, type UserSession } from "../src/browser/session.ts";
 import { buildCatalog } from "../src/catalog/build.ts";
 import type { RecordedRequest } from "../src/catalog/types.ts";
 import { createRouteMatcher } from "../src/gateway/routes.ts";
@@ -58,6 +58,31 @@ describe("parallel logins", () => {
     const results = await runPool([0, 1, 2, 3, 4, 5, 6].map(task), 3);
     expect(peak).toBe(3);
     expect(results.map((r) => r.status)).toEqual(["fulfilled", "fulfilled", "rejected", "fulfilled", "fulfilled", "fulfilled", "fulfilled"]);
+  });
+
+  it("retry a login once after a slow login page, but never after Auth0 rejects the credentials", async () => {
+    const retried: string[] = [];
+    let calls = 0;
+    const slowThenOk = async () => {
+      if (calls++ === 0) throw new Error("user3#2: no login form appeared within 180s. Last URL: https://x/en/retailer");
+      return "ok";
+    };
+    await expect(retryOnce(slowThenOk, retryableLoginError, (e) => retried.push(e.message))).resolves.toBe("ok");
+    expect(calls).toBe(2);
+    expect(retried).toHaveLength(1);
+
+    let rejected = 0;
+    const wrongPassword = async () => {
+      rejected++;
+      throw new Error("Auth0 rejected user1: Wrong email or password");
+    };
+    await expect(retryOnce(wrongPassword, retryableLoginError, () => {})).rejects.toThrow(/Auth0 rejected/);
+    expect(rejected).toBe(1);
+
+    const alwaysSlow = async () => {
+      throw new Error("no login form appeared");
+    };
+    await expect(retryOnce(alwaysSlow, retryableLoginError, () => {})).rejects.toThrow(/no login form/);
   });
 });
 

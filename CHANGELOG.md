@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Logins survive a slow login page.** The app's login page loads its scripts before it redirects to Auth0. On test
+  (23 Oct 2026) that took 30 s to over 60 s: the page stayed on "Loading your experience" while its script files
+  downloaded slowly, and a login failed with "no login form appeared within 60s". The first login screen now gets
+  180 s; a failed login is tried once more (not when Auth0 rejects the credentials, so an account isn't locked out);
+  and the error says what the page showed.
+
 ## 0.3.0 — 2026-10-22
 
 Users mode: load expressed as simultaneous users instead of requests per second.
