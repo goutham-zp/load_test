@@ -105,14 +105,41 @@ export function sessionList(sessions: Record<string, UserSession>, users: { key:
   return users.flatMap((u) => sessionsOf(sessions, u.key));
 }
 
-async function environmentReachable(env: EnvConfig): Promise<string | undefined> {
+/** TLS certificate checks Node's fetch fails on hosts with an internal CA or an incomplete chain (devfms, 25 Oct 2026). */
+const CERT_ERRORS = new Set([
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "ERR_TLS_CERT_ALTNAME_INVALID",
+]);
+
+/**
+ * Why the environment looks down (its web host or Auth0 failing or 5xx), or undefined when it is up. A host counts as
+ * down only when every attempt fails. A certificate Node can't verify still means the host answered: the browsers and
+ * k6 skip certificate checks too, and dev's web host (internal CA) failed this check before every step 2.
+ */
+export async function environmentReachable(
+  env: Pick<EnvConfig, "webBaseUrl" | "auth0Domain">,
+  fetchFn: typeof fetch = fetch,
+  attempts = 3,
+  waitMs = 5_000
+): Promise<string | undefined> {
   for (const url of [env.webBaseUrl, env.auth0Domain]) {
-    try {
-      const res = await fetch(url, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(15_000) });
-      if (res.status >= 500) return `${url} returned ${res.status}`;
-    } catch (e) {
-      return `${url} unreachable (${(e as Error).message})`;
+    let problem: string | undefined;
+    for (let i = 1; i <= attempts; i++) {
+      try {
+        const res = await fetchFn(url, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(15_000) });
+        problem = res.status >= 500 ? `${url} returned ${res.status}` : undefined;
+      } catch (e) {
+        const code = ((e as Error & { cause?: { code?: string } }).cause?.code) ?? "";
+        // Node's message is only "fetch failed"; the cause code says why (connect timeout, DNS, reset).
+        problem = CERT_ERRORS.has(code) ? undefined : `${url} unreachable (${(e as Error).message}${code ? `: ${code}` : ""})`;
+      }
+      if (!problem) break;
+      if (i < attempts) await new Promise((r) => setTimeout(r, waitMs));
     }
+    if (problem) return `${problem}, ${attempts} attempts`;
   }
   return undefined;
 }

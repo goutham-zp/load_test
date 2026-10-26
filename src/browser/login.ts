@@ -67,17 +67,18 @@ export async function fillLoginForms(page: Page, user: User): Promise<void> {
 
 /**
  * Opens the app's login page, fills Auth0 universal login (classic or identifier-first) and waits until the app has
- * stored `storageKey` in localStorage on its own host.
+ * stored one of `storageKeys` in localStorage on its own host. Returns the first of them that is set.
  */
-async function auth0Login(page: Page, env: EnvConfig, app: AppProfile, user: User, storageKey: string): Promise<void> {
+async function auth0Login(page: Page, env: EnvConfig, app: AppProfile, user: User, storageKeys: string | string[]): Promise<string> {
+  const keys = typeof storageKeys === "string" ? [storageKeys] : storageKeys;
   await page.goto(env.webBaseUrl + loginPath(app, env), { waitUntil: "domcontentloaded", timeout: 60_000 });
   await fillLoginForms(page, user);
 
   const webHost = new URL(env.webBaseUrl).host;
   const outcome = await Promise.race([
     page
-      .waitForFunction(([host, key]) => location.host === host && !!localStorage.getItem(key!), [webHost, storageKey], { timeout: 90_000 })
-      .then(() => "ok" as const)
+      .waitForFunction(([host, wanted]) => location.host === host && (wanted as string[]).find((k) => !!localStorage.getItem(k)), [webHost, keys] as const, { timeout: 90_000 })
+      .then(async (found) => (await found.jsonValue()) as string)
       .catch(() => "timeout" as const),
     page
       .locator(AUTH_ERROR)
@@ -91,7 +92,8 @@ async function auth0Login(page: Page, env: EnvConfig, app: AppProfile, user: Use
     const msg = await page.locator(AUTH_ERROR).filter({ visible: true }).first().innerText().catch(() => "");
     throw new Error(`Auth0 rejected ${user.key}: ${msg.trim() || "unknown error"}`);
   }
-  if (outcome === "timeout") throw new Error(`${user.key}: login did not complete within 90s (no "${storageKey}" in localStorage). Last URL: ${page.url()}`);
+  if (outcome === "timeout") throw new Error(`${user.key}: login did not complete within 90s (no ${keys.map((k) => `"${k}"`).join(" or ")} in localStorage). Last URL: ${page.url()}`);
+  return outcome;
 }
 
 async function saveState(context: BrowserContext, envName: string, file: string): Promise<string> {
@@ -367,7 +369,17 @@ export async function loginCompanyUser(
   });
 
   try {
-    await auth0Login(page, env, app, user, login.auth0TokenKey);
+    const stored = await auth0Login(page, env, app, user, login.legacy ? [login.auth0TokenKey, app.tokenKey] : login.auth0TokenKey);
+    if (stored !== login.auth0TokenKey && login.legacy) {
+      // Legacy login: the app took the password itself and already holds a company token for the default company.
+      const token = await page.evaluate((key) => localStorage.getItem(key) ?? "", app.tokenKey);
+      const company = legacyCompany(token, login.legacy);
+      if (!company) throw new Error(`${user.key}: legacy login gave a token without "${login.legacy.companyIdClaim}" or "${login.legacy.loginClaim}".`);
+      const { missing } = chooseCompanies([company], want);
+      if (missing.length) log(`${user.key}: legacy login only opens the default company ${company.id}; not available: ${missing.join(", ")}`);
+      log(`${user.key}: legacy (non-Auth0) login, default company only`);
+      return [await companySession(company, token, 1)];
+    }
     // Multi-company users stop at the company picker (the app lists companies); others are swapped straight to their
     // default company (the app calls the exchange itself). Wait for either.
     const deadline = Date.now() + 30_000;
@@ -439,41 +451,58 @@ export async function loginCompanyUser(
         },
         { values: { [app.tokenKey]: r.access!, [login.refreshTokenKey]: r.refresh ?? "", ...(login.extraStorage ?? {}) } }
       ));
-      const storageStatePath = await saveState(context, env.name, `${user.key}__${slug(company.id)}.state.json`);
-      let claim = login.companyTypeClaim ? decodeJwtPayload(r.access)?.[login.companyTypeClaim] : undefined;
-      if (claim === undefined && login.companyInfoPath && login.companyTypeField) {
-        // The app asks for the company right after its exchange; give that call a moment to show up.
-        for (let i = 0; i < 20 && !companyInfoUrl; i++) await page.waitForTimeout(250);
-        if (companyInfoUrl) {
-          const info = await inPage(page, () => page.evaluate(
-            async ({ url, token }) => {
-              const res = await fetch(url, { headers: { accept: "application/json", authorization: `Bearer ${token}` } });
-              return res.ok ? ((await res.json()) as unknown) : undefined;
-            },
-            { url: companyInfoUrl!, token: r.access! }
-          )).catch(() => undefined);
-          claim = fieldAt(info, login.companyTypeField);
-        }
-      }
-      const session: UserSession = {
-        key: `${user.key}|${company.id}`,
-        user: user.key,
-        token: r.access,
-        exp: decodeJwtExp(r.access),
-        companies: [company.id],
-        companyName: company.name,
-        companyType: typeof claim === "string" ? claim : undefined,
-        companiesAvailable: listed.length,
-        storageStatePath,
-        loggedInAt: new Date().toISOString(),
-        webBaseUrl: env.webBaseUrl,
-      };
-      sessions.push(session);
-      log(`${user.key}: company ${company.name ?? company.login} (${company.id})${session.companyType ? ` [${session.companyType}]` : ""}, token expires ${expiry(session.exp)}`);
+      sessions.push(await companySession(company, r.access, listed.length));
     }
     if (!sessions.length) throw new Error(`${user.key}: logged in, but no company token could be obtained.`);
     return sessions;
   } finally {
     await context.close();
   }
+
+  /** Saves the page's state (holding `token` for `company`), learns the company type and returns the session. */
+  async function companySession(company: AuthCompany, token: string, available: number): Promise<UserSession> {
+    const storageStatePath = await saveState(context, env.name, `${user.key}__${slug(company.id)}.state.json`);
+    let claim = login.companyTypeClaim ? decodeJwtPayload(token)?.[login.companyTypeClaim] : undefined;
+    if (claim === undefined && login.companyInfoPath && login.companyTypeField) {
+      // The app asks for the company right after its exchange; give that call a moment to show up.
+      for (let i = 0; i < 20 && !companyInfoUrl; i++) await page.waitForTimeout(250);
+      if (companyInfoUrl) {
+        const info = await inPage(page, () => page.evaluate(
+          async ({ url, token }) => {
+            const res = await fetch(url, { headers: { accept: "application/json", authorization: `Bearer ${token}` } });
+            return res.ok ? ((await res.json()) as unknown) : undefined;
+          },
+          { url: companyInfoUrl!, token }
+        )).catch(() => undefined);
+        claim = fieldAt(info, login.companyTypeField);
+      }
+    }
+    const session: UserSession = {
+      key: `${user.key}|${company.id}`,
+      user: user.key,
+      token,
+      exp: decodeJwtExp(token),
+      companies: [company.id],
+      companyName: company.name,
+      companyType: typeof claim === "string" ? claim : undefined,
+      companiesAvailable: available,
+      storageStatePath,
+      loggedInAt: new Date().toISOString(),
+      webBaseUrl: env.webBaseUrl,
+    };
+    log(`${user.key}: company ${company.name ?? company.login} (${company.id})${session.companyType ? ` [${session.companyType}]` : ""}, token expires ${expiry(session.exp)}`);
+    return session;
+  }
+}
+
+/**
+ * The company a legacy (non-Auth0) login's token is for, from its claims: id from `companyIdClaim` (falling back to the
+ * login), login from `loginClaim`. Undefined when the token names neither.
+ */
+export function legacyCompany(token: string, legacy: NonNullable<CompanyExchangeLogin["legacy"]>): AuthCompany | undefined {
+  const claims = decodeJwtPayload(token) ?? {};
+  const text = (v: unknown) => (typeof v === "string" || typeof v === "number" ? String(v) : "");
+  const login = text(claims[legacy.loginClaim]);
+  const id = text(claims[legacy.companyIdClaim]) || login;
+  return id ? { id, login: login || id } : undefined;
 }

@@ -1,3 +1,4 @@
+import type { BreakReason } from "../analysis/evaluate.ts";
 import type { RunResults, StepRecord } from "../run/results.ts";
 import { esc, fmtCount, fmtMs, fmtNum, fmtPct, numTd, page, th } from "./html.ts";
 
@@ -48,12 +49,27 @@ function problemText(p: { slow: boolean; errors: boolean }): string {
   return p.slow && p.errors ? "too slow and too many errors" : p.slow ? "too slow" : p.errors ? "too many errors" : "";
 }
 
-/** e.g. "too slow: p95 32.3 s (limit 10.0 s); no calls failed". */
-function brokeWhy(r: RunResults, s: StepRecord): string {
+/**
+ * e.g. "too slow: p95 32.3 s (limit 10.0 s); no calls failed". When only some services crossed a limit, names them
+ * with their own figure: "too slow: fms/banking-apis p95 10.7 s (limit 10.0 s; all calls 4.91 s); no calls failed".
+ */
+export function brokeWhy(r: RunResults, s: StepRecord): string {
   const p = stepProblems(r, s);
   const b = r.meta.breakRules;
-  const p95 = `p95 ${fmtMs(s.overall.p95)} (limit ${fmtMs(b.p95Ms)})`;
-  const errors = `${fmtPct(s.overall.errorRate)} errors (limit ${fmtPct(b.errorRate)})`;
+  const which = (reason: BreakReason) =>
+    s.services
+      .filter((x) => x.broke?.includes(reason))
+      .slice(0, 3)
+      .map((x) => `${x.name} ${reason === "p95" ? fmtMs(x.stats.p95) : fmtPct(x.stats.errorRate)}`)
+      .join(", ");
+  const slowOverall = s.overall.p95 > b.p95Ms;
+  const errorsOverall = s.overall.errorRate > b.errorRate;
+  const p95 = slowOverall || !which("p95")
+    ? `p95 ${fmtMs(s.overall.p95)} (limit ${fmtMs(b.p95Ms)})`
+    : `${which("p95")} p95 (limit ${fmtMs(b.p95Ms)}; all calls ${fmtMs(s.overall.p95)})`;
+  const errors = errorsOverall || !which("error-rate")
+    ? `${fmtPct(s.overall.errorRate)} errors (limit ${fmtPct(b.errorRate)})`
+    : `${which("error-rate")} errors (limit ${fmtPct(b.errorRate)}; all calls ${fmtPct(s.overall.errorRate)})`;
   const detail = p.slow && p.errors ? `${p95}, ${errors}` : p.slow ? `${p95}${s.overall.errors === 0 ? "; no calls failed" : ""}` : errors;
   return `${problemText(p)}: ${detail}`;
 }

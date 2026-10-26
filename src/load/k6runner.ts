@@ -35,16 +35,37 @@ export function writePlanFile(runDir: string, plan: LoadPlan): string {
   return file;
 }
 
+export interface JourneyIndex {
+  tokens: string[];
+  /** Per token key, its journey numbers grouped by page (pages in journey order). */
+  byToken: Record<string, number[][]>;
+}
+
+/** Journey numbers per token key, grouped by page, for k6's pickJourney (src/load/k6/pick.js). */
+export function journeyIndex(journeys: Journey[]): JourneyIndex {
+  const byToken: Record<string, number[][]> = {};
+  const byTokenPage = new Map<string, number[]>();
+  journeys.forEach((j, i) => {
+    const key = `${j.token}\n${j.page}`;
+    let list = byTokenPage.get(key);
+    if (!list) {
+      list = [];
+      byTokenPage.set(key, list);
+      (byToken[j.token] ??= []).push(list);
+    }
+    list.push(i);
+  });
+  return { tokens: Object.keys(byToken).sort(), byToken };
+}
+
 /**
  * Users mode: the journeys (journeys.json, loaded once into a SharedArray) and a small index of journey numbers per
- * token (journeys-index.json), next to plan.json. Contains no tokens.
+ * token and page (journeys-index.json), next to plan.json. Contains no tokens.
  */
 export function writeJourneysFile(runDir: string, journeys: Journey[]): string {
   const file = path.join(runDir, "journeys.json");
   writeJson(file, { journeys });
-  const byToken: Record<string, number[]> = {};
-  journeys.forEach((j, i) => (byToken[j.token] ??= []).push(i));
-  writeJson(file.replace(/\.json$/, "-index.json"), { tokens: Object.keys(byToken).sort(), byToken });
+  writeJson(file.replace(/\.json$/, "-index.json"), journeyIndex(journeys));
   return file;
 }
 

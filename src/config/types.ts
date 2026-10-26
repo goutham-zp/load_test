@@ -82,6 +82,16 @@ export interface CompanyExchangeLogin {
    * first one is clicked so the app makes the exchange call itself and the URL can be read from it.
    */
   pickerSelector?: string;
+  /**
+   * Accounts not on Auth0 (FMS legacy login, e.g. dev users on 25 Oct 2026): the app checks the email (authPortal),
+   * takes the password itself at its own login call and stores a company token for the account's default company
+   * straight away, with no Auth0 token. That token is used as it is; the claims name its company.
+   */
+  legacy?: {
+    /** JWT claim of the company token with the company id (the ftsId), and the one with its login (wwwLogin). */
+    companyIdClaim: string;
+    loginClaim: string;
+  };
 }
 
 /** How the tool drives one web app: config/apps/<name>/app.json, next to its pages.json and interactions.json. */

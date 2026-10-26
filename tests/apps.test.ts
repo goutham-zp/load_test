@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { chooseCompanies, companiesFromAuthList, exchangeBody, fieldAt, isApiPath, siblingApiUrl } from "../src/browser/login.ts";
+import { chooseCompanies, companiesFromAuthList, exchangeBody, fieldAt, isApiPath, legacyCompany, siblingApiUrl } from "../src/browser/login.ts";
 import { companySessionsUsable, type UserSession } from "../src/browser/session.ts";
 import { buildCatalog, resolveEndpoint } from "../src/catalog/build.ts";
 import type { CatalogEndpoint, RecordedRequest } from "../src/catalog/types.ts";
@@ -105,6 +105,15 @@ describe("company-token login helpers", () => {
     expect(companySessionsUsable([s("1"), s("2")], 300, { companies: { u: ["2"] } }, "u", now)).toBe(true);
     expect(companySessionsUsable([s("1")], 300, { companies: { u: ["2"] } }, "u", now)).toBe(false);
   });
+
+  it("reads a legacy (non-Auth0) login's company from its token claims", () => {
+    const jwt = (claims: Record<string, unknown>) => `h.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.s`;
+    const legacy = fms.login.kind === "company-exchange" ? fms.login.legacy! : undefined;
+    expect(legacy).toEqual({ companyIdClaim: "companyId", loginClaim: "unique_name" });
+    expect(legacyCompany(jwt({ companyId: "2065304653", unique_name: "aturner5", exp: 1 }), legacy!)).toEqual({ id: "2065304653", login: "aturner5" });
+    expect(legacyCompany(jwt({ unique_name: "aturner5" }), legacy!)).toEqual({ id: "aturner5", login: "aturner5" });
+    expect(legacyCompany(jwt({ exp: 1 }), legacy!)).toBeUndefined();
+  });
 });
 
 describe("guard auth calls", () => {
@@ -115,8 +124,10 @@ describe("guard auth calls", () => {
     expect(guard.decide("POST", "https://auth/api/v1/auth2/refresh")).toEqual({ action: "allow", reason: "auth" });
     expect(guard.decide("POST", "https://gw/fms/v1/users/authPortal")).toEqual({ action: "allow", reason: "auth" });
     expect(guard.decide("POST", "https://gw/fms/v1/auth2/auth0Validation")).toEqual({ action: "allow", reason: "auth" });
+    expect(guard.decide("POST", "https://gw/fms/v1/auth2/login")).toEqual({ action: "allow", reason: "auth" });
     expect(guard.decide("POST", "https://auth/api/v1/auth2/other")).toEqual({ action: "block", reason: "write" });
     expect(isReplayable(guard, "POST", "https://auth/api/v1/auth2/auth0Validation")).toBe(false);
+    expect(isReplayable(guard, "POST", "https://gw/fms/v1/auth2/login")).toBe(false);
   });
 });
 

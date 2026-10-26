@@ -1,5 +1,5 @@
 {
-  "_comment": "FMS_UI (../FMS_UI). Auth0 login through the app's /login page, then one API token per company: the app swaps its Auth0 token (localStorage auth0Token) for a company token (access_token) at the auth API. The company is not in the URL. Selectors: shared SortableTableColumn (th.sortable-header) and PagingControl (\">\" button), Kendo grids, react-loading-skeleton. companyTypeClaim is unverified until the first pg-fms login (Phase 3); a missing claim just disables page companyTypes filtering.",
+  "_comment": "FMS_UI (../FMS_UI). Auth0 login through the app's /login page, then one API token per company: the app swaps its Auth0 token (localStorage auth0Token) for a company token (access_token) at the auth API. The company is not in the URL. Accounts not on Auth0 (legacy login, e.g. the dev users) are sent by authPortal to the app's own POST /v1/auth2/login, which stores a company token for the default company directly; login.legacy names the claims that identify that company. Selectors: shared SortableTableColumn (th.sortable-header) and PagingControl (\">\" button), Kendo grids, react-loading-skeleton. companyTypeClaim is unverified until the first pg-fms login (Phase 3); a missing claim just disables page companyTypes filtering.",
   "name": "fms",
   "pageUrl": "{web}/{path}",
   "pagePattern": "^/(?<path>.*)$",
@@ -19,11 +19,13 @@
     "companyTypeClaim": "companyType",
     "companyInfoPath": "/api/v1.1/configuration/redirect",
     "companyTypeField": "result.companyType",
-    "pickerSelector": "[data-testid=\"active-companies-list\"] .continue-btn"
+    "pickerSelector": "[data-testid=\"active-companies-list\"] .continue-btn",
+    "legacy": { "companyIdClaim": "companyId", "loginClaim": "unique_name" }
   },
   "authCalls": [
     { "method": "POST", "path": "/v1/auth2/(auth0Validation|refresh)$" },
-    { "method": "POST", "path": "/v1/users/authPortal$" }
+    { "method": "POST", "path": "/v1/users/authPortal$" },
+    { "method": "POST", "path": "/v1/auth2/login$" }
   ],
   "loadSettleMs": 3000,
   "busySelectors": [

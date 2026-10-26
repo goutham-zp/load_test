@@ -216,9 +216,11 @@ export function stepRates(plan: LoadPlan, totalRps: number, held: Map<string, nu
 const MAX_JOURNEYS_PER_PAGE_AND_TOKEN = 3;
 
 /**
- * Journeys for the users mode: for every reached page and every token that has samples on it, the page's replayable
- * endpoints with that token's samples (base variant). Up to 3 per page and token, rotating samples, so repeated visits
- * don't all ask for the same record.
+ * Journeys for the users mode: for every reached page and every token that reached it and has samples on it, the
+ * page's replayable endpoints with that token's samples (base variant). Up to 3 per page and token, rotating samples,
+ * so repeated visits don't all ask for the same record. A page lists the shared menu calls too, so without the
+ * "reached it" check an account would also open pages it can't see (a distributor on retailer-dashboard), sending
+ * only the shared calls.
  */
 export function buildJourneys(catalog: Catalog, guard: CompiledGuard, filters: PlanFilters = {}): Journey[] {
   const { selected } = selectEndpoints(catalog, guard, filters);
@@ -227,7 +229,11 @@ export function buildJourneys(catalog: Catalog, guard: CompiledGuard, filters: P
   const out: Journey[] = [];
   for (const page of catalog.pages.filter((p) => p.reached && (!filters.onlyPage || p.id === filters.onlyPage))) {
     const endpoints = page.endpoints.map((k) => byKey.get(k)).filter((e): e is CatalogEndpoint => !!e);
-    const tokens = [...new Set(endpoints.flatMap((e) => e.samples.map((s) => tokenKeyFor(scope, s.user, s.companyId))))].sort();
+    // Pages from catalogs without urls (none recorded) are open to every token, as before.
+    const reachedBy = new Set(page.urls.map((u) => tokenKeyFor(scope, u.user, u.companyId)));
+    const tokens = [...new Set(endpoints.flatMap((e) => e.samples.map((s) => tokenKeyFor(scope, s.user, s.companyId))))]
+      .filter((t) => reachedBy.size === 0 || reachedBy.has(t))
+      .sort();
     for (const token of tokens) {
       const perEndpoint = endpoints
         .map((e) => ({ e, list: e.samples.filter((s) => tokenKeyFor(scope, s.user, s.companyId) === token) }))

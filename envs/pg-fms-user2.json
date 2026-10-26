@@ -1,0 +1,19 @@
+{
+  "_comment": "FMS_UI master build on UAT (uatfms.fintech.com). API hosts: the test-apis gateway plus hosts the app calls directly: staged invoices, and banking for the banking-activity retailer summary (also in hostServices, mapped to their service in config/services.json). Not listed on purpose: https://apis.app.fintech.com, the production platform gateway the UAT build uses for feature flags; it must never be load tested. Users: LT_FMS_USER_<n>_EMAIL / _PASSWORD in .env.",
+  "name": "pg-fms-user2",
+  "kind": "postgres",
+  "app": "fms",
+  "webBaseUrl": "https://uatfms.fintech.com",
+  "lang": "en",
+  "gatewayBaseUrls": [
+    "https://test-apis.app.fintech.com",
+    "https://uat-stagedinvoice-api.fintech.com",
+    "https://uat-banking-api.app.fintech.com"
+  ],
+  "hostServices": {
+    "https://uat-stagedinvoice-api.fintech.com": "fms/staged-invoice-apis",
+    "https://uat-banking-api.app.fintech.com": "fms/banking-apis"
+  },
+  "userPrefix": "LT_FMS_USER_",
+  "auth0Domain": "https://fintech-auth-stg.us.auth0.com"
+}

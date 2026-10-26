@@ -1,12 +1,14 @@
 // k6 script for one load step. All planning happens in Node; this file only replays planned requests.
 // Inputs (env): LT_PLAN (slots per service), LT_PLAN_INDEX (service names and slot counts), LT_STEP (rates, duration,
 // mode), LT_TOKENS (token key -> token, or a list when an account has several sessions), LT_SUMMARY.
-// Users mode adds LT_JOURNEYS (pages with their calls) and LT_JOURNEYS_INDEX (journey numbers per token key).
+// Users mode adds LT_JOURNEYS (pages with their calls) and LT_JOURNEYS_INDEX (journey numbers per token key, grouped
+// by page).
 import http from "k6/http";
 import exec from "k6/execution";
 import { sleep } from "k6";
 import { SharedArray } from "k6/data";
 import { Counter } from "k6/metrics";
+import { pickJourney, vusOnToken } from "./pick.js";
 
 // Every VU runs this init code. Only the small index is parsed per VU; the slots live once in SharedArrays (the
 // callback runs once), so memory stays flat when slow responses push the VU count into the hundreds.
@@ -118,13 +120,15 @@ export function load() {
 
 // Users mode: each virtual user keeps one account session (VUs spread over token keys, then over sessions), opens a
 // page by sending all its recorded calls at once (as a browser does), then waits the think time (+-50%) and repeats.
+// The VUs of a token key start on different pages spread over all its pages (see pick.js).
 export function user() {
   const vu = exec.vu.idInTest - 1;
   const keys = journeyIndex.tokens;
-  const key = keys[vu % keys.length];
+  const tokenIndex = vu % keys.length;
+  const key = keys[tokenIndex];
   const session = Math.floor(vu / keys.length);
-  const mine = journeyIndex.byToken[key];
-  const journey = journeys[mine[(exec.vu.iterationInScenario + vu) % mine.length]];
+  const pages = journeyIndex.byToken[key];
+  const journey = journeys[pickJourney(pages, session, vusOnToken(step.vus, keys.length, tokenIndex), exec.vu.iterationInScenario)];
   const batch = [];
   const sent = [];
   for (const r of journey.requests) {

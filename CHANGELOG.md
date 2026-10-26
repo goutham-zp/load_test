@@ -2,11 +2,54 @@
 
 ## Unreleased
 
+- **An emergency stop for an unreachable host now says why.** The 26 Oct UAT FMS run stopped after its last step
+  with "uatfms.fintech.com unreachable (fetch failed), 3 attempts": Node's fetch message hides the network error. The
+  stop reason now adds the error code (for example `UND_ERR_CONNECT_TIMEOUT`, `ENOTFOUND`, `ECONNRESET`).
+- **The check between steps no longer stops healthy runs on hosts with an internal certificate.** Between steps the
+  run checks that the web host and Auth0 are up. On dev (25 Oct 2026) it stopped every run after step 1 (0% errors,
+  no k6 network errors) with "devfms.fintech.com unreachable (fetch failed)": Node's fetch rejects that host's
+  certificate (`UNABLE_TO_VERIFY_LEAF_SIGNATURE`, internal CA or incomplete chain), while curl, the browsers and k6
+  reach it. A certificate Node can't verify now counts as up (the browsers and k6 skip certificate checks too), and a
+  host counts as down only when 3 attempts, 5 s apart, all fail or answer 5xx.
+- **FMS legacy (non-Auth0) logins.** On dev (25 Oct 2026) the FMS accounts are not on Auth0: the app's authPortal
+  sends them to its own `POST /v1/auth2/login`, which stores a company token (`access_token`) for the account's
+  default company with no `auth0Token`, so the login waited 90 s and failed. With `login.legacy` in the FMS profile,
+  the login now also accepts the app's own company token, reads the company from its claims (`companyId`,
+  `unique_name`) and saves that one session; `POST /v1/auth2/login` is an allowed auth call (never replayed). Auth0
+  accounts work as before.
+- **Users mode visits every page, not just the first few.** Each virtual user started at its own number in the
+  token's journey list (in catalog order, 3 samples per page) and moved one entry per visit, so a step only reached
+  the top of the list: the 25 Oct FMS trial opened 12 of 61 pages at 25 users and 19 at 50 (billing, PO,
+  relationships, catalogs, settings and the retailer reports never loaded). The VUs of an account now start on pages
+  spread over all its pages and move one page per visit (`src/load/k6/pick.js`), so every page is opened within
+  pages ÷ VUs visits; each lap takes a page's next sample. Earlier users-mode results covered only those first pages.
+- **An account only opens pages it reached in discovery.** A page lists the shared menu calls too, so a distributor
+  also got journeys on retailer pages (retailer-dashboard), replaying only the menu calls. Journeys now follow the
+  page's recorded visits (`urls`); catalogs without them behave as before.
 - **Logins survive a slow login page.** The app's login page loads its scripts before it redirects to Auth0. On test
   (23 Oct 2026) that took 30 s to over 60 s: the page stayed on "Loading your experience" while its script files
   downloaded slowly, and a login failed with "no login form appeared within 60s". The first login screen now gets
   180 s; a failed login is tried once more (not when Auth0 rejects the credentials, so an account isn't locked out);
   and the error says what the page showed.
+- **The verdict names the service that broke.** When only one service crossed a limit, the verdict said e.g. "too
+  slow: p95 4.91 s (limit 10.0 s)", quoting all calls' p95, which was under the limit. It now names the service and
+  its own figure: "too slow: fms/banking-apis 10.7 s p95 (limit 10.0 s; all calls 4.91 s)".
+- **FMS pages load their grid and report data.** FMS_UI fetches most grids and reports with POSTs, and all 39 were
+  blocked, so the FMS catalog held mostly the menu and count calls every page repeats. 38 of them, plus
+  `billing/summary`, `billing/details` and `billing/invoices` (seen once the billing pages got their periods), are now
+  in `config/read-allowlist.json` as reviewed reads:
+  each traced from the controller to its procedure (or EF, OpenSearch and file reads), and every procedure checked on
+  UAT for INSERT/UPDATE/DELETE and for calls to routines that write.
+  `distributors/locations/potential` stays blocked: for an unknown ZIP code it calls API Ninjas and inserts the ZIP.
+- **`envs/pg-fms.json` includes the banking API host** the banking-activity page calls directly
+  (`uat-banking-api.app.fintech.com`, mapped to `fms/banking-apis`).
+- **The dev FMS build's newer read POSTs.** Dev calls newer versions of some reads: staged-invoice
+  `v1.1 search/retailer`, PO `v1.1 purchaseorders/totals`, relationships `v1.1 retailers/relationships/tradingpartners`
+  and banking `v1.1 .../retailer/summary/compressed` are allowlisted (handlers traced on `master_postgres`, procedures
+  checked on UAT). Three stay blocked and are recorded unreviewed: relationships `v1.1 .../filtered` and `.../active`
+  (`fast.get_company_relationships_v2`) and banking `v1.3 .../pending/retailer`
+  (`pkg_fms_pending_bankactivity.retailer_activity_paginated_v3`), because their procedures exist only on dev and the
+  dev database could not be read.
 
 ## 0.3.0 — 2026-10-22
 

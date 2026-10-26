@@ -214,7 +214,7 @@
     {
       "method": "POST",
       "path": "^/fms/v1/relationships/distributors/locations/potential$",
-      "note": "FMS_UI distributor dashboard. NOT a pure read: RelationshipService.GetDistributorPotentialRelationshipsList -> ZipCodeLookupService fills missing zip codes from the external API Ninjas and SaveChangesAsync inserts them. Keep blocked.",
+      "note": "Keep blocked. backend: Relationship_API V1 RelationshipsController.GetDistributorPotentialRelationships -> DistributorPotentialRelsRequestCommand -> GetDistributorPotentialRelationshipsList -> ZipCodeLookupService.GetZipCodesWithinRadiusAsync: when the company's ZIP is not in fts.r_zipcode_lookup it calls the external API Ninjas service and inserts the ZIP (SaveChangesAsync). Checked 2026-10-25.",
       "reviewed": false
     },
     {
@@ -264,6 +264,282 @@
       "path": "^/data-platform/v1/productcatalogsettings/getcategorybyglcode$",
       "note": "DXP product-catalog. backend: data-productcatalog-api ProductCatalogSettingsController.GetCategorybyGlcode -> DistinctGlcodeQuery -> retailerReadRepository.GetDistinctProductCatalogSettingsWithoutPagedData; no writes. Reviewed 2026-10-22.",
       "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/service/v1/reports/earlywarning$",
+      "note": "FMS early-warning-report. backend: FMS_API ReportsController.GetEarlyWarningReport -> EarlyWarningReportHandler -> ReportsService.GetEarlyWarningdata -> fast.get_early_warning_data; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/service/v1/companies/fms_alerts$",
+      "note": "FMS alert-center. backend: FMS_API CompanyController.GetCompanyAlerts -> GetCompanyAlertsHandler -> FmsAlertService.GetAlertsForCompamy -> pkg_fms_company_alerts.get_company_alerts; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/service/v1\\.1/configuration$",
+      "note": "FMS pending-banking-activity. backend: FMS_API v1.1 ConfigurationController.GetConfiguration -> ConfigurationHandler -> ConfigurationLogic.GetConfigByKeyAndEnv (config read); no writes. Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/service/v1/banking/reports/additional-activity/(vendor|retailer)$",
+      "note": "FMS additional-eft-activity. backend: FMS_API BankAccountController.Get{Vendor,Retailer}AdditionalBankActvity -> {Vendor,Retailer}AdditionalActivityHandler -> BankActivityService -> pkg_fms_bankactivity.additional_actvity_{dist,ret} (+ IsParentWithActiveChildren read); no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/service/v1/creditcard/reports/activity/(vendor|retailer)/detail$",
+      "note": "FMS credit-card-activity. backend: FMS_API BankAccountController.Get{Vendor,Retailer}CreditCardActivityData -> CreditCardActivityReport{Vendor,Retailer}Handler -> pkg_fms_cc_activity.get_detail_{dist,ret}; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/service/v1\\.1/setups/pending$",
+      "note": "FMS setup-requests. backend: FMS_API SetupV11Controller.InitialStoreSetups -> GetPendingSetupsPagedHandler -> SetupTrackingService.GetPagedPendingSetups -> pkg_fms_setups.get_initial_setups_paged (uses ON COMMIT DROP temp tables only); no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v1/billing/periods$",
+      "note": "FMS billing-summary. backend: Billing_API V1 BillingController.BillingPeriods -> BillingPeriodsQuery -> BillingService.GetBillingPeriods -> pkg_fms_billing_activity.get_billing_periods; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v1/vendors/ap$",
+      "note": "FMS nonreg-invoice-summary. backend: Retailer_Product_Catalog_API V1 ApProductCatalogController.GetApVendors -> ApVendorsQuery -> fast.get_ap_vendors; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v1/product-catalog$",
+      "note": "FMS retailer-product-catalog. backend: Retailer_Product_Catalog_API V1 ProductCatalogController.GetCatalog -> ProductCatalogQuery -> CatalogService.GetData -> fast.get_retailer_product_catalog; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v1/product-catalog/ap$",
+      "note": "FMS retailer-nonreg-product-catalog. backend: Retailer_Product_Catalog_API V1 ApProductCatalogController.GetCatalog -> ApProductCatalogQuery -> CatalogService.GetApData -> fast.get_ap_retailer_prod_catalog; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v1\\.1/retailers/fms/relationships$",
+      "note": "FMS relationships. backend: Relationship_API V1.1 RelationshipsController.RelationshipsReportPaged -> RelationshipReportPagedCommand -> RelationshipService.GetCompanyRelationshipsPaged -> pkg_fms_delivery_locations.get_company_relations_paged; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/retailers/fms/relationships$",
+      "note": "FMS relationships. backend: Relationship_API V1 RelationshipsController.GetCompanyRelationships -> GetRelationshipReportCommand -> RelationshipService.GetCompanyRelationships -> pkg_fms_delivery_locations.get_company_relationships; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/retailers/fms/relationships/active$",
+      "note": "FMS company/retailer/relationships. backend: Relationship_API V1 RelationshipsController.GetRetailerActiveRelationships -> GetRelationshipReportActiveCommand -> RelationshipService.GetCompanyRelationships -> pkg_fms_delivery_locations.get_company_relationships; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/retailers/relationships/tradingpartners$",
+      "note": "FMS mydistributors. backend: Relationship_API V1 RelationshipsController.GetRetailerTradingPartners -> RetailerFamilyTradingPartnerHandler -> RelationshipService.GetRetailerFamilyTradingPartners -> pkg_get_relationships.ret_family_tprs_detailed_paged; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/distributors/relationships/tradingpartners$",
+      "note": "FMS company/distributor/retailers. backend: Relationship_API V1 RelationshipsController.GetDistributorTradingPartners -> DistributorFamilyTradingPartnerHandler -> RelationshipService.GetDistributorFamilyTradingPartners -> pkg_get_relationships.dist_family_tprs_details_paged; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/distributors/relationships/deliverylocations$",
+      "note": "FMS company/distributor/delivery-locations. backend: Relationship_API V1 RelationshipsController.GetDistributorDeliveryLocations -> DistributorDeliveryLocationsCommand (a read despite the name) -> RelationshipService.GetVendorDeliveryLocations -> pkg_fms_delivery_locations.get_vendor_delivery_locations; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v1/relationships/setups/upcoming$",
+      "note": "FMS upcoming-live-dates. backend: Relationship_API V1 RelationshipsController.UpcomingSetups -> GetUpcomingLiveSetupsCommand (a read) -> SetupTrackingService.GetUpcomingLiveSetups -> pkg_fms_setups.get_upcoming_live_v2; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v1/relationships/companies/retailers/available$",
+      "note": "FMS delivery-locations. backend: Relationship_API V1 RelationshipsController.GetAvailableRetailers -> GetAvailableRetailersCommand (a read) -> RelationshipService.GetAvailableRetailers -> pkg_get_relationships.get_available_retailers_v2; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v1/relationships/companies/tradingpartners/excludeexceptions$",
+      "note": "FMS delivery-locations. backend: Relationship_API V1 RelationshipsController.GetTradingPartnersExcludingExceptions -> GetTradingPartnersCommand (a read) -> RelationshipService.GetTradingPartners -> pkg_get_relationships.get_family_trading_partners_v2; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/data-platform/v1\\.4/fms/invoicedetails$",
+      "note": "FMS invoices-details. backend: VP_Invoices_API FMS V3.4 InvoicesController.GetInvoiceDetails -> InvoiceRetailerDetailsV34Query -> InvoiceService.GetVendorFtsIds (Mongo read) + GetInvoiceDetailsFromOpenSearch (OpenSearch search); no database writes; no writes. Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v1/invoice/scanned$",
+      "note": "FMS nonreg-invoice-summary. backend: AP_Api V1 InvoiceController.GetAllInvoices -> GetInvoicesQuery -> invoiceRepo.GetAll().Where(...).ToList() (EF read); no writes. Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/invoice/v1/po-validation-errors/errors$",
+      "note": "FMS invoice-po-validation. backend: Invoice_API V1 PoValidationErrorsController.Errors -> PoNumberValidationErrorsQuery -> POFailedValidationService.GetOpenFailures -> pkg_po_validation_fails.get_inv_failed_po_valid_list (+ EOD cut-off settings read); no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/invoice/v1/invoice/filesstatus$",
+      "note": "FMS file-submission-status. backend: Invoice_API V1 InvoiceController.InvoiceFilesStatus -> InvoiceFilesStatusQuery -> InvoiceFileService.GetInvoiceFilesStatus -> pkg_fms_invoice_files.get_invoice_files_status_v2; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/invoice/v1/invoice/distributor/details$",
+      "note": "FMS invoices-details. backend: Invoice_API V1 InvoiceController.DistributorInvoiceDetails -> DistributorInvoiceDetailsCommand (a read) -> ReportService.GetDistributorInvoicesDetailsFms -> pkg_fms_dstr_invoice_details.get_dstr_inv_details_paged; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v1/reports/activity/vendor/summary$",
+      "note": "FMS banking-activity. backend: Banking_API V1 ReportsController.GetVendorBankActivitySummaryData -> BankActivityVendorSummaryCommand (a read) -> BankService.GetBankActivityVendorSummary -> pkg_fms_bankactivity.bank_actvity_summary_dist_{with_invoice_type_filter,inv_type_fltr_v2}; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/api/v1/reports/activity/retailer/summary/compressed$",
+      "note": "FMS banking-activity, called directly on the banking API host (hostServices). backend: Banking_API V1 ReportsController.GetRetailerBankActivitySummaryDataCompressed -> BankActivityRetailerSummaryCommand (a read) -> BankService.GetBankActivityRetailerSummary -> pkg_fms_bankactivity.bank_actvity_summary_ret_v2 / pkg_fms_bankactivity_optimized.bank_activity_summ_ret_parent_optimized_v2; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v1\\.2/reports/activity/pending/vendor$",
+      "note": "FMS pending-banking-activity. backend: Banking_API V1.2 ReportsController.GetVendorPendingBankActivity -> VendorActivityV2Query -> BankService.GetPendingActivityVendorV2 -> pkg_fms_pending_bankactivity.distributor_activity_v2; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v1\\.2/reports/activity/pending/retailer$",
+      "note": "FMS pending-banking-activity. backend: Banking_API V1.2 ReportsController.GetRetailerPendingBankActivityPaginated -> RetailerActivityV2Command (a read) -> BankService.GetPendingActivityRetailerPaginatedV2 -> pkg_fms_pending_bankactivity.retailer_activity_paginated_v2; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/po/v1/purchaseorders/tradingpartners$",
+      "note": "FMS purchase-orders. backend: PO_API (ADO master) V1 PurchaseOrdersController.GetPurchaseOrderTradingPartners -> GetPurchaseOrderTradingPartnerQuery -> pkg_fms_purchase_orders.get_po_trading_partners; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/po/v1\\.1/purchaseorders/search$",
+      "note": "FMS purchase-orders. backend: PO_API (ADO master) V1.1 PurchaseOrdersController.PurchaseOrders -> PurchaseOrdersListFilterQuery -> PurchaseOrdersService.GetPurchaseOrderListFilterData -> pkg_fms_purchase_orders.get_purchase_orders_multi_status (+ EF reads); no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/po/v1/purchaseorders/totals$",
+      "note": "FMS po-discrepancy-report. backend: PO_API (ADO master) V1 PurchaseOrdersController.PurchaseOrdersTotals -> PurchaseOrdersTotalsQuery -> PurchaseOrdersService.GetPurchaseOrderTotals -> pkg_fms_purchase_orders.get_purchase_order_report; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/ap-vendors/v1/vendor/retailers/my-vendors$",
+      "note": "FMS myvendors-nonregulated. backend: AP_Vendors_API V1 VendorController.GetVendors -> GetMyVendorsQuery -> RetailerVendorsService.GetMyVendorsFromDB (EF AsNoTracking reads); no writes. Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v1/audit-info$",
+      "note": "FMS audit-report. backend: Auth API (ADO master) UsersController.GetAuditInfo -> GetAuditInfoRequestHandler -> companyRepository/auditRepository GetAll().Where(...) (EF reads); no writes. Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/invite/sent$",
+      "note": "FMS distributor-autopay. A read despite the name: lists invitations already sent. backend: DistributorInviteAPI (ADO master) InviteController.Invites -> InvitesSentQuery -> DistributorInvitesService.GetDistributorInvitations -> fast_track.get_distributor_invitations; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/api/v1/stagedinvoices/search$",
+      "note": "FMS incomplete, direct staged-invoice host (hostServices). backend: StagedInvoiceApi V1 StagedInvoicesController.SearchInvoicesIndex -> InvoicesIndexSearch -> StagedInvoicesService.GetInvoiceListFromIndex (reads the distributor's .IDX file) + company attribute reads; no database writes; no writes. Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/api/v1/stagedinvoices/search/retailer$",
+      "note": "FMS incomplete-Distributor-Submissions, direct staged-invoice host (hostServices). backend: StagedInvoiceApi V1 StagedInvoicesController.SearchRetailerInvoicesIndex -> InvoicesRetailerIndexSearch -> GetIncompleteRetailerInvoices (EF AsNoTracking + directory/.IDX file reads); no database writes; no writes. Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v1/billing/summary$",
+      "note": "FMS billing-summary. backend: Billing_API V1 BillingController.BillingSummary -> BillingSummaryQuery -> BillingService.GetBillingSummary -> pkg_fms_billing_activity.get_billing_summary; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v1/billing/details$",
+      "note": "FMS billing-details. backend: Billing_API V1 BillingController.BillingDetails -> BillingDetailQuery -> BillingService.GetBillingDetails -> pkg_fms_billing_activity.get_billing_details_{retailer,vendor} (+ company read); no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v1/billing/invoices$",
+      "note": "FMS billing-invoices. backend: Billing_API V1 BillingController.BillingInvoices -> BillingInvoicesQuery -> BillingService.GetBillingInvoices -> pkg_fms_billing_activity.get_billing_invoices; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/api/v1\\.1/stagedinvoices/search/retailer$",
+      "note": "FMS incomplete-Distributor-Submissions on the dev build (v1.1), direct staged-invoice host (hostServices). backend: StagedInvoiceApi V1.1 StagedInvoicesController.SearchRetailerInvoicesIndexV1_1 -> InvoicesRetailerIndexSearchV1_1 -> GetIncompleteRetailerInvoicesV1_1 (EF AsNoTracking + directory/.IDX file reads); no database writes; no writes. Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/po/v1\\.1/purchaseorders/totals$",
+      "note": "FMS po-discrepancy-report on the dev build (v1.1). backend: PO_API (ADO master) V1.1 PurchaseOrdersController.PurchaseOrdersTotalsFiltered -> PurchaseOrdersTotalsFilteredQuery -> PurchaseOrdersService.GetPurchaseOrderTotalsFiltered -> fast.get_purchase_order_report_v2; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v1\\.1/retailers/relationships/tradingpartners$",
+      "note": "FMS mydistributors on the dev build (v1.1). backend: Relationship_API master_postgres V1.1 RelationshipsController.GetRetailerTradingPartners_V1_1 -> RetailerFamilyTradingPartnerHandler_V1_1 -> RelationshipService.GetRetailerFamilyTradingPartners_V1_1 -> fast.ret_family_tprs_detailed_paged_v2; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/api/v1\\.1/reports/activity/retailer/summary/compressed$",
+      "note": "FMS banking-activity on the dev build (v1.1), called directly on the banking API host (hostServices). backend: Banking_API master_postgres V1.1 ReportsController.GetRetailerBankActivitySummaryData -> BankActivityRetailerSummaryV1_1Command (a read) -> BankService.GetBankActivityRetailerSummaryV1_1 -> fast.bank_actvity_summary_ret_v3 / fast.bank_activity_summ_ret_parent_optimized_v3 (+ company read); no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/MERGE/TRUNCATE and no call to a routine that has one). Reviewed 2026-10-25.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v1\\.1/retailers/fms/relationships/filtered$",
+      "note": "Keep blocked until checked. FMS relationships (dev build). backend: Relationship_API master_postgres V1.1 GetCompanyRelationshipsFiltered -> GetRelationshipReportFilteredCommand -> fast.get_company_relationships_v2: the handler only reads, but the procedure is not on UAT and could not be read on dev. Checked 2026-10-25.",
+      "reviewed": false
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v1\\.1/retailers/fms/relationships/active$",
+      "note": "Keep blocked until checked. FMS company/retailer/relationships (dev build). backend: Relationship_API master_postgres V1.1 GetRetailerActiveRelationshipsFiltered -> GetRelationshipReportActiveFilteredCommand -> fast.get_company_relationships_v2: the handler only reads, but the procedure is not on UAT and could not be read on dev. Checked 2026-10-25.",
+      "reviewed": false
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v1\\.3/reports/activity/pending/retailer$",
+      "note": "Keep blocked until checked. FMS pending-banking-activity (dev build). backend: Banking_API master_postgres V1.3 GetRetailerPendingBankActivityPaginated -> RetailerActivityV1_3Command -> pkg_fms_pending_bankactivity.retailer_activity_paginated_v3: the handler only reads, but the procedure is not on UAT and could not be read on dev. Checked 2026-10-25.",
+      "reviewed": false
     }
   ]
 }

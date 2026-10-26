@@ -4,7 +4,10 @@ import { buildCatalog } from "../src/catalog/build.ts";
 import type { RecordedRequest } from "../src/catalog/types.ts";
 import { createRouteMatcher } from "../src/gateway/routes.ts";
 import { compileGuard } from "../src/guard/readonly.ts";
+import { pickJourney, vusOnToken } from "../src/load/k6/pick.js";
+import { journeyIndex } from "../src/load/k6runner.ts";
 import { buildJourneys, buildLoadPlan, estimateUserRates } from "../src/load/plan.ts";
+import { environmentReachable } from "../src/run/run.ts";
 
 const session = (key: string, tokenKey: string, sessionNo: number, token: string): UserSession => ({
   key,
@@ -151,5 +154,94 @@ describe("users mode planning", () => {
     const one = buildLoadPlan(catalog, guard, services, 1);
     const four = buildLoadPlan(catalog, guard, services, 1, {}, 4);
     expect(four.services[0]!.cap).toBe(one.services[0]!.cap * 4);
+  });
+
+  it("give an account journeys only on pages it reached, not on every page that lists a shared call", () => {
+    // home lists the users/data call user1 also has samples of, but here only user2 reached home.
+    const onlyUser2Home = { ...catalog, pages: catalog.pages.map((p) => (p.id === "home" ? { ...p, urls: [{ user: "user2", companyId: "", url: "https://web/" }] } : p)) };
+    const journeys = buildJourneys(onlyUser2Home, guard);
+    expect(journeys.filter((j) => j.page === "home").map((j) => j.token)).toEqual(["user2"]);
+    expect(journeys.filter((j) => j.page === "invoices").map((j) => j.token)).toEqual(["user1", "user1"]);
+  });
+
+  it("index journeys per token grouped by page, for k6 to pick from", () => {
+    const journeys = buildJourneys(catalog, guard);
+    const index = journeyIndex(journeys);
+    expect(index.tokens).toEqual(["user1", "user2"]);
+    expect(index.byToken.user1!.map((pageJourneys) => pageJourneys.map((i) => journeys[i]!.page))).toEqual([["home", "home"], ["invoices", "invoices"]]);
+    expect(index.byToken.user2!.map((pageJourneys) => pageJourneys.map((i) => journeys[i]!.page))).toEqual([["home"]]);
+  });
+});
+
+describe("users mode page picking (k6 pick.js)", () => {
+  // A token key with 60 pages of 3 recorded samples, like the FMS catalog; journey number = page * 3 + sample.
+  const pages = Array.from({ length: 60 }, (_, p) => [p * 3, p * 3 + 1, p * 3 + 2]);
+  // Pages token key 0's VUs open in their first `visits` visits (VU n is on key n % tokenCount).
+  const pagesOpened = (vus: number, visits: number, tokenCount = 2) => {
+    const seen = new Set<number>();
+    for (let vu = 0; vu < vus; vu += tokenCount) {
+      for (let it = 0; it < visits; it++) seen.add(Math.floor(pickJourney(pages, Math.floor(vu / tokenCount), vusOnToken(vus, tokenCount, 0), it) / 3));
+    }
+    return seen.size;
+  };
+
+  it("count the VUs on each token key", () => {
+    expect([0, 1].map((t) => vusOnToken(25, 2, t))).toEqual([13, 12]);
+    expect(vusOnToken(1, 2, 1)).toBe(1);
+  });
+
+  it("open every page within a few visits, however short the step", () => {
+    // 13 VUs on key 0: 60 pages / 13 -> 5 visits each.
+    expect(pagesOpened(25, 5)).toBe(60);
+    // 22 Oct-25 Oct runs: 25 users made ~11 visits each in a 3-minute step and opened only the first 12 pages.
+    expect(pagesOpened(25, 11)).toBe(60);
+    expect(pagesOpened(2, 60)).toBe(60);
+  });
+
+  it("move one page per visit and take the next sample on each lap", () => {
+    const visits = Array.from({ length: 61 }, (_, it) => pickJourney(pages, 0, 1, it));
+    expect(visits.slice(0, 3)).toEqual([0, 3, 6]);
+    expect(visits[60]).toBe(1); // page 0 again, its second sample
+  });
+});
+
+describe("environment check between steps", () => {
+  const env = { webBaseUrl: "https://web", auth0Domain: "https://auth" };
+  // Fails the first `failures` calls (network error), then answers `status`.
+  const flaky = (failures: number, status = 200) => {
+    let calls = 0;
+    const fn = (async () => {
+      calls++;
+      if (calls <= failures) throw new Error("fetch failed");
+      return new Response(null, { status });
+    }) as unknown as typeof fetch;
+    return { fn, calls: () => calls };
+  };
+
+  it("does not stop a run for one lost request", async () => {
+    const f = flaky(1);
+    expect(await environmentReachable(env, f.fn, 3, 0)).toBeUndefined();
+    expect(f.calls()).toBe(3); // web: fail, ok; auth: ok
+  });
+
+  it("counts a certificate Node can't verify as up (internal CA, as on devfms)", async () => {
+    const certFail = (async () => {
+      throw Object.assign(new Error("fetch failed"), { cause: { code: "UNABLE_TO_VERIFY_LEAF_SIGNATURE" } });
+    }) as unknown as typeof fetch;
+    expect(await environmentReachable(env, certFail, 3, 0)).toBeUndefined();
+  });
+
+  it("stops when every attempt fails or the host keeps answering 5xx", async () => {
+    expect(await environmentReachable(env, flaky(9).fn, 3, 0)).toBe("https://web unreachable (fetch failed), 3 attempts");
+    expect(await environmentReachable(env, flaky(0, 503).fn, 3, 0)).toBe("https://web returned 503, 3 attempts");
+  });
+
+  it("names the network error behind Node's \"fetch failed\"", async () => {
+    const connectTimeout = (async () => {
+      throw Object.assign(new Error("fetch failed"), { cause: { code: "UND_ERR_CONNECT_TIMEOUT" } });
+    }) as unknown as typeof fetch;
+    expect(await environmentReachable(env, connectTimeout, 3, 0)).toBe(
+      "https://web unreachable (fetch failed: UND_ERR_CONNECT_TIMEOUT), 3 attempts"
+    );
   });
 });

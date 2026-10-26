@@ -1,0 +1,19 @@
+{
+  "_comment": "FMS_UI on dev (devfms.fintech.com). Hosts from FMS_UI .env.development and kube-config/ingress-dev.yml; direct hosts (staged invoices, banking) found by the first discovery on 25 Oct 2026. Not listed on purpose: https://apis.app.fintech.com (production feature flags; never load test it). Users: LT_FMSDEV_USER_<n>_EMAIL / _PASSWORD in .env.",
+  "name": "dev-fms",
+  "kind": "postgres",
+  "app": "fms",
+  "webBaseUrl": "https://devfms.fintech.com",
+  "lang": "en",
+  "gatewayBaseUrls": [
+    "https://dev-apis.app.fintech.com",
+    "https://dev-stagedinvoice-api.fintech.net",
+    "https://dev-banking-api.app.fintech.com"
+  ],
+  "hostServices": {
+    "https://dev-stagedinvoice-api.fintech.net": "fms/staged-invoice-apis",
+    "https://dev-banking-api.app.fintech.com": "fms/banking-apis"
+  },
+  "userPrefix": "LT_FMSDEV_USER_",
+  "auth0Domain": "https://fintech-auth-dev.us.auth0.com"
+}

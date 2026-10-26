@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { StatsBuilder } from "../src/analysis/stats.ts";
 import { computeComparison, delta, matchSteps } from "../src/report/compare.ts";
 import { esc, niceMax } from "../src/report/html.ts";
-import { renderRunReport, throughputCeiling } from "../src/report/runReport.ts";
+import { brokeWhy, renderRunReport, throughputCeiling } from "../src/report/runReport.ts";
 import type { RunResults, StepRecord } from "../src/run/results.ts";
 
 function stats(p95: number, n = 100) {
@@ -82,6 +82,24 @@ describe("run report", () => {
     expect(html).toContain("Why it failed");
     expect(html).not.toMatch(/<script[^>]+src=/);
     expect(html).not.toMatch(/<link[^>]+href=/);
+  });
+});
+
+describe("why a step broke", () => {
+  it("names the service and its own p95 when only that service crossed the limit", () => {
+    const r = results("pg-qa", [100, 200, 4_000], 2);
+    const s = r.steps[2]!;
+    s.services = [
+      { ...s.services[0]!, name: "fms/banking-apis", stats: stats(10_700), broke: ["p95"] },
+      { ...s.services[0]!, name: "fms/invoice-apis", stats: stats(4_000) },
+    ];
+    expect(brokeWhy(r, s)).toBe("too slow: fms/banking-apis 10.7 s p95 (limit 10.0 s; all calls 4.00 s); no calls failed");
+  });
+
+  it("quotes the step's own p95 when it is over the limit", () => {
+    const r = results("pg-qa", [100, 200, 40_000], 2);
+    r.steps[2]!.services[0]!.broke = ["p95"];
+    expect(brokeWhy(r, r.steps[2]!)).toBe("too slow: p95 40.0 s (limit 10.0 s); no calls failed");
   });
 });
 
