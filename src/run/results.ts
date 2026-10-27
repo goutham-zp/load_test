@@ -1,6 +1,7 @@
 import type { BreakReason, ServiceState } from "../analysis/evaluate.ts";
 import { percentile, StatsBuilder, type Stats } from "../analysis/stats.ts";
 import { resolveEndpoint } from "../catalog/build.ts";
+import type { JsonPrimitive } from "../catalog/types.ts";
 import type { RouteMatcher } from "../gateway/routes.ts";
 import type { RunnerHealth } from "./health.ts";
 import type { LayerVisit } from "./browserLayer.ts";
@@ -69,13 +70,15 @@ export interface RunMeta {
   versions: { node: string; k6: string; playwright: string };
   catalogCreatedAt: string;
   catalogSignature: string[];
-  filters: { onlyPage?: string; onlyEndpoint?: string; onlyService?: string; excludeServices?: string[] };
+  filters: { onlyPage?: string; onlyEndpoint?: string; onlyService?: string; excludeServices?: string[]; bodySet?: Record<string, JsonPrimitive>; dateRange?: { from: string; to: string } };
   /** Step targets: total req/s ("rate", the default) or virtual users ("users"). */
   stepsPlanned: number[];
   mode?: "rate" | "users";
   thinkTimeSec?: number;
   sessionsPerUser?: number;
   stepDurationSec: number;
+  /** Users mode: seconds the users took to arrive at the start of each step; left out of the figures. */
+  rampUpSec?: number;
   /** k6 gives up on a call after this long (absent in old results). */
   requestTimeoutSec?: number;
   browsers: number;

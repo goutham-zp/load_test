@@ -29,13 +29,26 @@ const visits = new Counter("lt_visits");
 
 const scenarios = {};
 if (usersMode) {
-  scenarios.users = {
-    executor: "constant-vus",
-    vus: step.vus,
-    duration: `${step.durationSec}s`,
-    gracefulStop: "15s",
-    exec: "user",
-  };
+  // With rampSec the users arrive over that many seconds (as real users do), then all of them run for durationSec.
+  scenarios.users = step.rampSec > 0
+    ? {
+        executor: "ramping-vus",
+        startVUs: 0,
+        stages: [
+          { duration: `${step.rampSec}s`, target: step.vus },
+          { duration: `${step.durationSec}s`, target: step.vus },
+        ],
+        gracefulRampDown: "15s",
+        gracefulStop: "15s",
+        exec: "user",
+      }
+    : {
+        executor: "constant-vus",
+        vus: step.vus,
+        duration: `${step.durationSec}s`,
+        gracefulStop: "15s",
+        exec: "user",
+      };
 }
 plan.services.forEach((svc, idx) => {
   if (usersMode) return;

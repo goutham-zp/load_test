@@ -35,6 +35,8 @@ export interface RunOptions {
   /** Users mode: virtual users per step (replaces steps), each opening pages with thinkTimeSec between them. */
   vus?: number[];
   thinkTimeSec?: number;
+  /** Users mode: seconds over which each step's users arrive; requests in that time are left out of the figures. */
+  rampUpSec?: number;
   /** Logins per account; each has its own token and so its own per-token rate-limit bucket. */
   sessionsPerUser?: number;
   /** Logins running at once. */
@@ -174,7 +176,7 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
   log(`Environment: ${env.name} (${env.kind}, app ${app.name})  hosts: ${envHosts(env).join(", ")}`);
   log(`Users: ${users.length}${sessionsPerUser > 1 ? ` x ${sessionsPerUser} sessions` : ""}  endpoints: ${plan.totalEndpoints}  services: ${plan.services.length}  browsers: ${browsers}`);
   if (usersMode) {
-    log(`Steps (virtual users): ${steps.join(", ")}  x ${stepDurationSec}s each, ${thinkSec}s think time between pages, ${journeys.length} page journeys  -> up to ~${Math.round((steps.length * (stepDurationSec + 30)) / 60)} min`);
+    log(`Steps (virtual users): ${steps.join(", ")}  x ${stepDurationSec}s each${opts.rampUpSec ? ` after a ${opts.rampUpSec}s ramp-up (not measured)` : ""}, ${thinkSec}s think time between pages, ${journeys.length} page journeys  -> up to ~${Math.round((steps.length * (stepDurationSec + 30)) / 60)} min`);
   } else {
     log(`Steps (total req/s): ${steps.join(", ")}  x ${stepDurationSec}s each  -> up to ~${Math.round((steps.length * (stepDurationSec + 30)) / 60)} min`);
   }
@@ -272,6 +274,7 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
         mode: usersMode ? "users" : "load",
         vus: usersMode ? steps[i] : undefined,
         thinkSec: usersMode ? thinkSec : undefined,
+        rampSec: usersMode ? opts.rampUpSec : undefined,
         rates: Object.fromEntries([...rates].map(([k, v]) => [k, v.rate])),
         durationSec: stepDurationSec,
         timeoutSec: settings.load.requestTimeoutSec,
@@ -283,7 +286,7 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
       if (layer) layer.active = false;
       const stepEnd = new Date().toISOString();
 
-      const result = await parseK6Output(path.join(stepDir, "k6.json.gz"), plan);
+      const result = await parseK6Output(path.join(stepDir, "k6.json.gz"), plan, { excludeFirstSec: usersMode ? opts.rampUpSec : undefined });
       if (result.all.n === 0) {
         endReason = `k6 produced no results (exit code ${exitCode}); see ${path.join(stepDir, "k6.log")}`;
         aborted ??= endReason;
@@ -406,10 +409,11 @@ export async function runLoadTest(opts: RunOptions): Promise<string> {
       versions: { node: process.version, k6: k6Version(), playwright: playwrightVersion() },
       catalogCreatedAt: catalog.createdAt,
       catalogSignature: catalogSignature(catalog),
-      filters: { onlyPage: opts.filters.onlyPage, onlyEndpoint: opts.filters.onlyEndpoint, onlyService: opts.filters.onlyService, excludeServices: opts.filters.excludeServices },
+      filters: { onlyPage: opts.filters.onlyPage, onlyEndpoint: opts.filters.onlyEndpoint, onlyService: opts.filters.onlyService, excludeServices: opts.filters.excludeServices, bodySet: opts.filters.bodySet, dateRange: opts.filters.dateRange },
       stepsPlanned: steps,
       mode: usersMode ? "users" : "rate",
       thinkTimeSec: usersMode ? thinkSec : undefined,
+      rampUpSec: usersMode ? opts.rampUpSec : undefined,
       sessionsPerUser,
       stepDurationSec,
       requestTimeoutSec: settings.load.requestTimeoutSec,

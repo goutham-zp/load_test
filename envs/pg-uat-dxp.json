@@ -1,0 +1,18 @@
+{
+  "_comment": "DXP retailer portal on test-dxp.app.fintech.com (calls the test-apis gateway, Postgres UAT backends), for the Oracle-vs-Postgres comparison with env ora-dev-dxp. Hosts as envs/test.json. Discover with --users user1 --max-companies 1 so it matches ora-dev-dxp (one account, one company). The dev account does not exist on this Auth0 tenant, so the two sides are different companies.",
+  "name": "pg-uat-dxp",
+  "kind": "postgres",
+  "webBaseUrl": "https://test-dxp.app.fintech.com",
+  "lang": "en",
+  "gatewayBaseUrls": [
+    "https://test-apis.app.fintech.com",
+    "https://test-dxp.app.fintech.com/api/"
+  ],
+  "auth0Domain": "https://fintech-stg.us.auth0.com",
+  "services": {
+    "fms/invoice-apis": {
+      "pods": 1
+    }
+  },
+  "userPrefix": "LT_USER_"
+}

@@ -1,9 +1,13 @@
 export type Outcome = "ok" | "error" | "throttled" | "clientError";
 
-/** 5xx and status 0 (timeouts, connection errors) are errors; 429 is throttling and kept apart. */
+/**
+ * 5xx, status 0 (timeouts, connection errors) and 401/403 are errors; 429 is throttling and kept apart. Every replayed
+ * sample succeeded at discovery, so an auth rejection under load is a failure: on UAT FMS (26 Oct 2026) 16 users on one
+ * token got 401 on 78-95% of calls, which counted as client errors and showed as "errors 0.0%".
+ */
 export function classifyStatus(status: number): Outcome {
   if (status === 429) return "throttled";
-  if (status === 0 || status >= 500) return "error";
+  if (status === 0 || status >= 500 || status === 401 || status === 403) return "error";
   if (status >= 400) return "clientError";
   return "ok";
 }

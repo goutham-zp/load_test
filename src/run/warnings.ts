@@ -43,7 +43,7 @@ export function buildWarnings(r: RunResults, catalog: Catalog): string[] {
     }
     const authErrors = s.services.reduce((a, svc) => a + svc.stats.clientErrors, 0);
     if (authErrors > 0 && authErrors / Math.max(1, s.overall.n) > 0.05) {
-      w.push(`Step ${s.index + 1}: ${authErrors} 4xx responses (other than 429). Check for expired tokens (401) or ids not valid for the user (403/404).`);
+      w.push(`Step ${s.index + 1}: ${authErrors} 4xx responses (other than 401, 403 and 429, which count as errors and throttling). Check for ids not valid for the user (404) or requests the API rejects (400).`);
     }
   }
 

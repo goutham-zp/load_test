@@ -5,6 +5,7 @@ import zlib from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { advanceStates, checkBreak, emergencyReason, nothingLeftToClimb, type ServiceState } from "../src/analysis/evaluate.ts";
 import { classifyStatus, percentile, StatsBuilder } from "../src/analysis/stats.ts";
+import { applyDateRange, overrideBody } from "../src/catalog/params.ts";
 import type { Catalog, CatalogEndpoint } from "../src/catalog/types.ts";
 import type { ResolvedServices } from "../src/config/load.ts";
 import type { ServiceConfig, Settings } from "../src/config/types.ts";
@@ -104,6 +105,8 @@ describe("stats", () => {
     expect(classifyStatus(0)).toBe("error");
     expect(classifyStatus(503)).toBe("error");
     expect(classifyStatus(404)).toBe("clientError");
+    expect(classifyStatus(401)).toBe("error"); // token rejected under load
+    expect(classifyStatus(403)).toBe("error");
     const b = new StatsBuilder();
     for (let i = 1; i <= 100; i++) b.add(200, i);
     b.add(429, 99999);
@@ -201,5 +204,95 @@ describe("k6 output: failure reasons and page visits", () => {
     const res = await parseK6Output(write([call("GET /a", "home", "200"), call("GET /a", "home", "200"), call("GET /b", "home", "200"), call("GET /b", "plan", "200")]), plan);
     expect(res.visits).toEqual({ home: 2, plan: 1 });
     expect(res.visitsEstimated).toBe(true);
+  });
+
+  it("leave out requests that started during the ramp-up (--ramp-up)", async () => {
+    const at = (time: string, tpl: string, status: string, ms: number) =>
+      JSON.stringify({ metric: "http_req_duration", type: "Point", data: { time, value: ms, tags: { tpl, status, svc: "fms/x" } } });
+    const visit = (time: string) => JSON.stringify({ metric: "lt_visits", type: "Point", data: { time, value: 1, tags: { page: "home" } } });
+    const file = write([
+      visit("2026-10-22T10:00:00Z"),
+      at("2026-10-22T10:00:01Z", "GET /a", "0", 1000), // started 10:00:00, the first request
+      visit("2026-10-22T10:00:30Z"),
+      at("2026-10-22T10:01:30Z", "GET /a", "200", 40_000), // started 10:00:50, still in the 60 s ramp
+      visit("2026-10-22T10:01:05Z"),
+      at("2026-10-22T10:01:10Z", "GET /a", "200", 500), // started 10:01:09.5, after the ramp
+    ]);
+    const all = await parseK6Output(file, plan);
+    expect(all.endpoints.get("GET /a")!.stats.n).toBe(3);
+    const measured = await parseK6Output(file, plan, { excludeFirstSec: 60 });
+    expect(measured.endpoints.get("GET /a")!.stats.n).toBe(1);
+    expect(measured.endpoints.get("GET /a")!.stats.max).toBe(500);
+    expect(measured.visits).toEqual({ home: 1 });
+  });
+});
+
+describe("run --set", () => {
+  const withBody = (body: unknown): CatalogEndpoint => {
+    const e = endpoint("POST /search", "a", ["user1"], 3, "POST");
+    e.samples = e.samples.map((s) => ({ ...s, body: JSON.stringify(body) }));
+    return e;
+  };
+
+  it("replaces only the body fields the request has, and sends the base variant only", () => {
+    const seq = endpointSequence(withBody({ startDate: "2026-10-25T00:00:00Z", endDate: "2026-10-25T00:00:00Z", pageSize: 50 }), false, "user", {
+      startDate: "2025-01-01T00:00:00Z",
+      endDate: "2025-03-31T00:00:00Z",
+      dateFilter: 1,
+    });
+    expect(seq.map((r) => r.variant)).toEqual(["base"]); // 3 variants recorded, one sample
+    expect(JSON.parse(seq[0]!.body!)).toEqual({ startDate: "2025-01-01T00:00:00Z", endDate: "2025-03-31T00:00:00Z", pageSize: 50 });
+  });
+
+  it("leaves other bodies and requests without a body as they are", () => {
+    expect(overrideBody(undefined, { startDate: "x" })).toBeUndefined();
+    expect(overrideBody("not json", { startDate: "x" })).toBe("not json");
+    expect(overrideBody('{"a":1}', { startDate: "x" })).toBe('{"a":1}');
+    expect(overrideBody("[1,2]", { startDate: "x" })).toBe("[1,2]");
+  });
+});
+
+describe("run --date-range", () => {
+  const range = { from: "2025-05-01", to: "2025-05-31" };
+
+  it("sets range fields in the body, at any depth, in each field's own format", () => {
+    const body = JSON.stringify({
+      startDate: "2026-10-26T00:00:00Z",
+      endDate: "2026-10-26T23:59:59",
+      filters: { fromDate: "10/26/2026", toDate: "2026-10-26" },
+      poDate: "2026-10-26",
+      dateFilter: 1,
+    });
+    const r = applyDateRange("https://gw/x", body, range);
+    expect(JSON.parse(r.body!)).toEqual({
+      startDate: "2025-05-01T00:00:00Z",
+      endDate: "2025-05-31T23:59:59",
+      filters: { fromDate: "05/01/2025", toDate: "2025-05-31" },
+      poDate: "2026-10-26",
+      dateFilter: 1,
+    });
+    expect(r.fields).toEqual(["startDate", "endDate", "filters.fromDate", "filters.toDate"]);
+  });
+
+  it("sets range fields in the query and leaves other requests as they are", () => {
+    const r = applyDateRange("https://gw/x?startDate=2026-10-26&endDate=2026-10-26&page=1", undefined, range);
+    expect(new URL(r.url).searchParams.get("startDate")).toBe("2025-05-01");
+    expect(new URL(r.url).searchParams.get("endDate")).toBe("2025-05-31");
+    expect(new URL(r.url).searchParams.get("page")).toBe("1");
+    const none = applyDateRange("https://gw/y?page=1", '{"a":1}', range);
+    expect(none).toEqual({ url: "https://gw/y?page=1", body: '{"a":1}', fields: [] });
+  });
+
+  it("leaves a lone start or end date as recorded: a cut-off is not a range", () => {
+    const body = JSON.stringify({ requestDateTo: "2026-10-26T00:00:00Z", status: 1 });
+    expect(applyDateRange("https://gw/x", body, range)).toEqual({ url: "https://gw/x", body, fields: [] });
+  });
+
+  it("sends the base variant only", () => {
+    const e = endpoint("POST /search", "a", ["user1"], 3, "POST");
+    e.samples = e.samples.map((s) => ({ ...s, body: JSON.stringify({ startDate: "2026-10-26", endDate: "2026-10-26" }) }));
+    const seq = endpointSequence(e, false, "user", undefined, range);
+    expect(seq.map((r) => r.variant)).toEqual(["base"]);
+    expect(JSON.parse(seq[0]!.body!)).toEqual({ startDate: "2025-05-01", endDate: "2025-05-31" });
   });
 });

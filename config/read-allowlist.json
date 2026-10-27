@@ -526,20 +526,56 @@
     {
       "method": "POST",
       "path": "^/fms/v1\\.1/retailers/fms/relationships/filtered$",
-      "note": "Keep blocked until checked. FMS relationships (dev build). backend: Relationship_API master_postgres V1.1 GetCompanyRelationshipsFiltered -> GetRelationshipReportFilteredCommand -> fast.get_company_relationships_v2: the handler only reads, but the procedure is not on UAT and could not be read on dev. Checked 2026-10-25.",
-      "reviewed": false
+      "note": "FMS relationships (dev build). backend: Relationship_API V1.1 GetCompanyRelationshipsFiltered -> GetRelationshipReportFilteredCommand -> FAST.GET_COMPANY_RELATIONSHIPS_V2 on Oracle dev (FTXD02): read with the read-only tool, no INSERT/UPDATE/DELETE/MERGE, no dynamic SQL, no calls to other routines; the handler only reads. Reviewed 2026-10-26.",
+      "reviewed": true
     },
     {
       "method": "POST",
       "path": "^/fms/v1\\.1/retailers/fms/relationships/active$",
-      "note": "Keep blocked until checked. FMS company/retailer/relationships (dev build). backend: Relationship_API master_postgres V1.1 GetRetailerActiveRelationshipsFiltered -> GetRelationshipReportActiveFilteredCommand -> fast.get_company_relationships_v2: the handler only reads, but the procedure is not on UAT and could not be read on dev. Checked 2026-10-25.",
-      "reviewed": false
+      "note": "FMS company/retailer/relationships (dev build). backend: Relationship_API V1.1 GetRetailerActiveRelationshipsFiltered -> GetRelationshipReportActiveFilteredCommand -> FAST.GET_COMPANY_RELATIONSHIPS_V2 on Oracle dev (FTXD02): no INSERT/UPDATE/DELETE/MERGE, no dynamic SQL, no calls to other routines; the handler only reads. Reviewed 2026-10-26.",
+      "reviewed": true
     },
     {
       "method": "POST",
       "path": "^/fms/v1\\.3/reports/activity/pending/retailer$",
-      "note": "Keep blocked until checked. FMS pending-banking-activity (dev build). backend: Banking_API master_postgres V1.3 GetRetailerPendingBankActivityPaginated -> RetailerActivityV1_3Command -> pkg_fms_pending_bankactivity.retailer_activity_paginated_v3: the handler only reads, but the procedure is not on UAT and could not be read on dev. Checked 2026-10-25.",
-      "reviewed": false
+      "note": "FMS pending-banking-activity (dev build). backend: Banking_API V1.3 GetRetailerPendingBankActivityPaginated -> RetailerActivityV1_3Command -> FAST.PKG_FMS_PENDING_BANKACTIVITY.RETAILER_ACTIVITY_PAGINATED_V3, which does not exist on Oracle dev (FTXD02, 2026-10-26: only RETAILER_ACTIVITY_PAGINATED and _V2), so the call cannot write; _V2 only reads (its one INSERT is commented out). The handler only reads. Reviewed 2026-10-26.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/invoice/v1/invoice/distributor/lineItems/download$",
+      "note": "FMS invoices-details 'Detailed with headers' CSV. backend: Invoice_API V1 InvoiceController.DistributorInvoiceLineItemsDownload -> DistributorInvoiceDetailsLineItemDownloadCommand -> ReportService.GetDistributorInvoiceDetailLineItemsDownloadFms -> pkg_fms_dstr_invoice_details.get_dist_inv_detailed_download (one SELECT built with format(); user values are bind parameters, only column names formatted; no INSERT/UPDATE/DELETE/MERGE/TRUNCATE, no routine calls) -> CSV in memory; no writes. Reviewed 2026-10-26 on pg_uat.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/data-platform/v1\\.4/fms/download/invoicelineitems/stream$",
+      "note": "FMS invoices-details (retailer) 'Detailed' CSV, streamed. backend: VP_Invoices_API main V3.4 InvoicesController.DownloadInvoiceLineItemsStream -> InvoiceRetailerLineItemsStreamDownloadQueryV34 -> InvoiceRetailerLineItemCsvService.WriteCsvToStreamAsync (IRetailerInvoiceReadRepository, IFilterService) + InvoiceService.GetVendorFtsIds (IReadRepository, OpenSearch client); read repositories only, no save/insert/update/delete. Reviewed 2026-10-26.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v6/reports/invoices$",
+      "note": "DXP my-invoices. backend: Invoice_API V6 ReportsController.InvoiceReport -> InvoiceReportRequestV6.Handler -> InvoiceDataPlatformClient.PullMyInvoicesListAsync (HTTP POST to the data platform invoices list; no database access, no writes). Same on master (Oracle) and master_postgres. Reviewed 2026-10-26.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/rpc/v3/product-catalog/catalog-exceptions$",
+      "note": "DXP my-products/catalog-exceptions. backend: Retailer_Product_Catalog_API V3 CatalogExceptionsController -> CatalogExceptionsListV3Query (data API client or mock data provider; no writes). Same on master and master_postgres. Reviewed 2026-10-26.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/rpc/v3/product-catalog/catalog-exceptions/summary$",
+      "note": "DXP my-products/catalog-exceptions. backend: Retailer_Product_Catalog_API V3 -> CatalogExceptionsSummaryV3Query -> DataApiClient.GetCatalogExceptionsSummaryFromDataApiAsync; no writes. Same on master and master_postgres. Reviewed 2026-10-26.",
+      "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/rpc/v3/product-catalog/catalog-exceptions/vendor-list$",
+      "note": "DXP my-products/catalog-exceptions. backend: Retailer_Product_Catalog_API V3 -> CatalogExceptionsVendorListV3Query -> DataApiClient.GetCatalogExceptionsVendorListFromDataApiAsync; no writes. Same on master and master_postgres. Reviewed 2026-10-26.",
+      "reviewed": true
     }
   ]
 }

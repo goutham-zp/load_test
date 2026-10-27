@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- **401 and 403 under load now count as errors.** They were "client errors", kept out of the error rate: on UAT FMS
+  (26 Oct 2026) a run got 401 on 78-95% of calls and said "errors 0.0%". Every replayed sample succeeded at discovery,
+  so an auth rejection during load is a failure. Other 4xx stay client errors (variants can legitimately return them).
+- **A run or discovery with fewer logins than the previous one no longer uses stale tokens.** Logins beyond
+  `--sessions-per-user` stayed in the saved sessions without being refreshed, and k6 got every saved token: a 1-login
+  run after a 4-login run sent 3 of every 4 calls with an expired token (that was the 401s above, not a limit in the
+  API), and discovery visited every page once per saved login. Extra logins are now dropped first.
+- **`run --date-range FROM,TO`** sets every date-range field (startDate/endDate, fromDate/toDate, ...; query or JSON
+  body at any depth) of every replayed request to one range, in the format each request uses (ISO date, ISO date-time
+  with its time suffix, MM/DD/YYYY). Only the base variant is sent. Shown in the run report.
+- **Reviewed reads (dev build):** `POST /fms/v1.1/retailers/fms/relationships/{filtered,active}` and
+  `POST /fms/v1.3/reports/activity/pending/retailer` are on the read allowlist after reading their Oracle dev procedures.
+- **`run --set key=value,...`** replaces top-level JSON body fields in every replayed request that has them, e.g. another
+  team's date range: `--set startDate=2025-01-01T00:00:00Z,endDate=2025-01-31T00:00:00Z`. Fields a body doesn't have
+  are not added; only the base variant is sent. The values are listed in the run report.
+- **FMS invoices-details detailed download is recorded and replayable.** Discovery opens DOWNLOAD CSV and clicks
+  "Detailed with headers"; `POST /fms/invoice/v1/invoice/distributor/lineItems/download` is on the read allowlist
+  (backend reviewed: one SELECT, no writes).
+- **New envs `ora-dev-fms-retailer` and `ora-dev-fms-distributor`:** FMS_UI on dev (devfms.fintech.com) with the Oracle
+  backend, labelled `"kind": "oracle"`, one per role so the two are run and reported separately. Each has its own users
+  (`LT_FMSORADEV_RET_USER_<n>_*` and `LT_FMSORADEV_DIST_USER_<n>_*` in `.env`, listed in `.env.example`), so neither
+  run can pick up the other role's account.
+- **New envs `ora-dev-dxp` and `pg-uat-dxp`** for the DXP retailer portal Oracle-vs-Postgres comparison:
+  `ora-dev-dxp` is dev-dxp.app.fintech.com (Oracle backend, `LT_DXPDEV_USER_<n>_*`, now in `.env.example`), and
+  `pg-uat-dxp` is test-dxp.app.fintech.com (Postgres UAT backends, `LT_USER_<n>_*`). They are on different Auth0
+  tenants, so each side is a different account and company. Discover both with `--users user1 --max-companies 1`.
 - **An emergency stop for an unreachable host now says why.** The 26 Oct UAT FMS run stopped after its last step
   with "uatfms.fintech.com unreachable (fetch failed), 3 attempts": Node's fetch message hides the network error. The
   stop reason now adds the error code (for example `UND_ERR_CONNECT_TIMEOUT`, `ENOTFOUND`, `ECONNRESET`).

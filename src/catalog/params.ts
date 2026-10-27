@@ -55,6 +55,73 @@ export function shiftDate(v: string, by: { years?: number; days?: number }): str
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}${suffix}`;
 }
 
+/** `date` (YYYY-MM-DD) written in the format of `like`; an ISO date-time keeps its own time-of-day suffix. */
+function formatLike(like: string, date: string): string | undefined {
+  const parsed = parseDateValue(like);
+  const m = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!parsed || !m) return undefined;
+  if (parsed.format === "iso-date") return date;
+  if (parsed.format === "us") return `${m[2]}/${m[3]}/${m[1]}`;
+  return `${date}${parsed.raw.slice(10)}`;
+}
+
+export interface DateRange {
+  from: string;
+  to: string;
+}
+
+/**
+ * `run --date-range`: sets every date-range field of a request (query or JSON body, any depth) to the given range, in
+ * the format the request already uses. A field counts when its value is a date and its name reads as a range start
+ * (startDate, fromDate, ...) or end (endDate, toDate, ...), the same rule discovery uses for date dimensions. Returns
+ * the fields it set, so a run can show which endpoints took the range. A request needs both a start and an end field:
+ * a lone end date (DXP pending relationships' requestDateTo) is a cut-off, not a range, and is left as recorded.
+ */
+export function applyDateRange(url: string, body: string | undefined, range: DateRange | undefined): { url: string; body?: string; fields: string[] } {
+  if (!range) return { url, body, fields: [] };
+  const fields: string[] = [];
+  const kinds = new Set<string>();
+  const u = new URL(url);
+  for (const [name, value] of [...u.searchParams]) {
+    const kind = classify(name, [value]);
+    const v = kind === "dateFrom" ? formatLike(value, range.from) : kind === "dateTo" ? formatLike(value, range.to) : undefined;
+    if (v === undefined) continue;
+    u.searchParams.set(name, v);
+    fields.push(name);
+    kinds.add(kind!);
+  }
+  let outBody = body;
+  if (body) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      parsed = undefined;
+    }
+    let changed = false;
+    const walk = (node: unknown, path: string[], depth: number) => {
+      if (depth > 4 || node === null || typeof node !== "object" || Array.isArray(node)) return;
+      const obj = node as Record<string, unknown>;
+      for (const [k, v] of Object.entries(obj)) {
+        if (typeof v === "string") {
+          const kind = classify(k, [v]);
+          const nv = kind === "dateFrom" ? formatLike(v, range.from) : kind === "dateTo" ? formatLike(v, range.to) : undefined;
+          if (nv !== undefined) {
+            obj[k] = nv;
+            kinds.add(kind!);
+            fields.push([...path, k].join("."));
+            changed = true;
+          }
+        } else if (v && typeof v === "object") walk(v, [...path, k], depth + 1);
+      }
+    };
+    walk(parsed, [], 0);
+    if (changed) outBody = JSON.stringify(parsed);
+  }
+  if (!kinds.has("dateFrom") || !kinds.has("dateTo")) return { url, body, fields: [] };
+  return { url: fields.length ? u.toString() : url, body: outBody, fields };
+}
+
 // ---------------------------------------------------------------------------
 // Reading params from samples
 
@@ -260,6 +327,26 @@ export function buildVariants(dims: ParamDimension[], base: Sample | undefined, 
     if (!added) break;
   }
   return variants;
+}
+
+/**
+ * `run --set`: replaces top-level fields of a JSON body, only those the body already has (so one --set can serve
+ * endpoints with different bodies, and never adds a field an endpoint doesn't take). Other bodies are left as they are.
+ */
+export function overrideBody(body: string | undefined, set: Record<string, JsonPrimitive> | undefined): string | undefined {
+  if (!body || !set || Object.keys(set).length === 0) return body;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return body;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return body;
+  const obj = parsed as Record<string, unknown>;
+  const keys = Object.keys(set).filter((k) => Object.hasOwn(obj, k));
+  if (keys.length === 0) return body;
+  for (const k of keys) obj[k] = set[k];
+  return JSON.stringify(obj);
 }
 
 /** Applies a variant to a sample, returning the concrete URL and body to send. */

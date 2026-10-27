@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { duplicateTokenSessions, k6Tokens, retryableLoginError, retryOnce, runPool, sessionLabel, type UserSession } from "../src/browser/session.ts";
+import { dropExtraSessions, duplicateTokenSessions, k6Tokens, retryableLoginError, retryOnce, runPool, sessionLabel, type UserSession } from "../src/browser/session.ts";
 import { buildCatalog } from "../src/catalog/build.ts";
 import type { RecordedRequest } from "../src/catalog/types.ts";
 import { createRouteMatcher } from "../src/gateway/routes.ts";
@@ -33,6 +33,19 @@ describe("several sessions per account", () => {
       "user3|9": session("user3|9", "user3|9", 1, "t3a"),
     });
     expect(tokens).toEqual({ user1: ["t1a", "t1b"], user2: "t2", "user3|9": ["t3a", "t3b"] });
+  });
+});
+
+describe("logins kept for a run", () => {
+  it("drops saved logins beyond the number this run asks for, so k6 gets no stale tokens", () => {
+    const sessions: Record<string, UserSession> = {
+      "user1|8152": session("user1|8152", "user1|8152", 1, "fresh"),
+      "user1#2|8152": session("user1#2|8152", "user1|8152", 2, "old2"),
+      "user1#3|8152": session("user1#3|8152", "user1|8152", 3, "old3"),
+    };
+    expect(dropExtraSessions(sessions, 1)).toBe(true);
+    expect(k6Tokens(sessions)).toEqual({ "user1|8152": "fresh" });
+    expect(dropExtraSessions(sessions, 1)).toBe(false);
   });
 });
 

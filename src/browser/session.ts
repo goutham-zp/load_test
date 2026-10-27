@@ -95,6 +95,22 @@ export function sessionsOf(sessions: Record<string, UserSession>, user: string):
   return Object.values(sessions).filter((s) => s.user === user);
 }
 
+/**
+ * Removes logins beyond the `perUser` this run asked for. They are not refreshed, yet every saved session went to k6:
+ * a 1-login run after a 4-login run sent 3 of every 4 calls with an expired token (UAT and dev FMS, 26 Oct 2026: 401 on
+ * 66-95% of calls). Returns whether anything was removed.
+ */
+export function dropExtraSessions(sessions: Record<string, UserSession>, perUser: number): boolean {
+  let changed = false;
+  for (const [key, s] of Object.entries(sessions)) {
+    if ((s.sessionNo ?? 1) > Math.max(1, perUser)) {
+      delete sessions[key];
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 export interface EnsureOptions {
   /** Company-token apps: log in to at most this many companies per user (when `companies` doesn't name them). */
   maxCompanies?: number;
@@ -189,7 +205,7 @@ export async function ensureSessions(
   opts: EnsureOptions = {}
 ): Promise<Record<string, UserSession>> {
   const sessions = loadSessions(env.name);
-  let changed = false;
+  let changed = dropExtraSessions(sessions, opts.sessionsPerUser ?? 1);
   for (const [key, s] of Object.entries(sessions)) {
     if (!users.some((u) => u.key === s.user)) {
       delete sessions[key];

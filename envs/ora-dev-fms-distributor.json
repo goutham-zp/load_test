@@ -1,0 +1,19 @@
+{
+  "_comment": "FMS_UI on dev (devfms.fintech.com), Oracle backend, distributor account(s) only. Same hosts as dev-fms (FMS_UI .env.development, kube-config/ingress-dev.yml, and the direct staged-invoice and banking hosts found by discovery on 25 Oct 2026). Not listed on purpose: https://apis.app.fintech.com (production feature flags; never load test it). Users: LT_FMSORADEV_DIST_USER_<n>_EMAIL / _PASSWORD in .env.",
+  "name": "ora-dev-fms-distributor",
+  "kind": "oracle",
+  "app": "fms",
+  "webBaseUrl": "https://devfms.fintech.com",
+  "lang": "en",
+  "gatewayBaseUrls": [
+    "https://dev-apis.app.fintech.com",
+    "https://dev-stagedinvoice-api.fintech.net",
+    "https://dev-banking-api.app.fintech.com"
+  ],
+  "hostServices": {
+    "https://dev-stagedinvoice-api.fintech.net": "fms/staged-invoice-apis",
+    "https://dev-banking-api.app.fintech.com": "fms/banking-apis"
+  },
+  "userPrefix": "LT_FMSORADEV_DIST_USER_",
+  "auth0Domain": "https://fintech-auth-dev.us.auth0.com"
+}

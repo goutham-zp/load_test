@@ -1,5 +1,5 @@
-import { applyVariant } from "../catalog/params.ts";
-import type { Catalog, CatalogEndpoint, Sample } from "../catalog/types.ts";
+import { applyDateRange, applyVariant, overrideBody, type DateRange } from "../catalog/params.ts";
+import type { Catalog, CatalogEndpoint, JsonPrimitive, Sample } from "../catalog/types.ts";
 import { tokenKeyFor } from "../config/app.ts";
 import type { ResolvedServices } from "../config/load.ts";
 import type { AppProfile, RateRule, ServiceConfig } from "../config/types.ts";
@@ -67,6 +67,13 @@ export interface PlanFilters {
   excludeServices?: string[];
   /** Smoke: base variant only, one request per sample. */
   baseOnly?: boolean;
+  /**
+   * `run --set`: top-level JSON body fields replaced in every replayed request that has them (e.g. another team's
+   * date range). Only the base variant is sent then, since the variants would vary the same fields.
+   */
+  bodySet?: Record<string, JsonPrimitive>;
+  /** `run --date-range`: every date-range field of every replayed request set to this range (base variant only). */
+  dateRange?: DateRange;
 }
 
 const MAX_SLOTS_PER_SERVICE = 5000;
@@ -114,9 +121,15 @@ function samplesByToken(samples: Sample[], scope: TokenScope): Map<string, Sampl
  * The request sequence for one endpoint: walk variants, and for each, one request per token (tokens innermost,
  * so each token gets an equal share). Samples rotate so every recorded sample is used.
  */
-export function endpointSequence(e: CatalogEndpoint, baseOnly: boolean, scope: TokenScope = "user"): PlannedRequest[] {
+export function endpointSequence(
+  e: CatalogEndpoint,
+  baseOnly: boolean,
+  scope: TokenScope = "user",
+  bodySet?: Record<string, JsonPrimitive>,
+  dateRange?: DateRange
+): PlannedRequest[] {
   const byToken = samplesByToken(e.samples, scope);
-  const variants = baseOnly ? [e.variants[0] ?? { label: "base", set: [] }] : e.variants.length ? e.variants : [{ label: "base", set: [] }];
+  const variants = baseOnly || bodySet || dateRange ? [e.variants[0] ?? { label: "base", set: [] }] : e.variants.length ? e.variants : [{ label: "base", set: [] }];
   const maxSamples = Math.max(...[...byToken.values()].map((l) => l.length));
   const rounds = baseOnly ? maxSamples : Math.max(variants.length, maxSamples);
   const seq: PlannedRequest[] = [];
@@ -125,7 +138,8 @@ export function endpointSequence(e: CatalogEndpoint, baseOnly: boolean, scope: T
     for (const [token, list] of byToken) {
       if (baseOnly && i >= list.length) continue;
       const sample = list[i % list.length]!;
-      const { url, body } = applyVariant(sample, v);
+      const variantReq = applyVariant(sample, v);
+      const { url, body } = applyDateRange(variantReq.url, overrideBody(variantReq.body, bodySet), dateRange);
       seq.push({
         tpl: e.key,
         variant: v.label,
@@ -174,8 +188,8 @@ export function buildLoadPlan(
     const users = [...new Set(endpoints.flatMap((e) => e.samples.map((s) => s.user)))].sort();
     const tokens = new Set(endpoints.flatMap((e) => e.samples.map((s) => tokenKeyFor(scope, s.user, s.companyId)))).size * Math.max(1, sessionsPerUser);
     const slots = filters.baseOnly
-      ? endpoints.flatMap((e) => endpointSequence(e, true, scope))
-      : interleave(endpoints.map((e) => endpointSequence(e, false, scope)));
+      ? endpoints.flatMap((e) => endpointSequence(e, true, scope, filters.bodySet, filters.dateRange))
+      : interleave(endpoints.map((e) => endpointSequence(e, false, scope, filters.bodySet, filters.dateRange)));
     plans.push({
       name,
       endpoints: endpoints.map((e) => e.key),
@@ -245,7 +259,8 @@ export function buildJourneys(catalog: Catalog, guard: CompiledGuard, filters: P
           token,
           requests: perEndpoint.map(({ e, list }) => {
             const sample = list[i % list.length]!;
-            const { url, body } = applyVariant(sample, e.variants[0] ?? { label: "base", set: [] });
+            const baseReq = applyVariant(sample, e.variants[0] ?? { label: "base", set: [] });
+            const { url, body } = applyDateRange(baseReq.url, overrideBody(baseReq.body, filters.bodySet), filters.dateRange);
             return { svc: e.service, tpl: e.key, variant: "base", user: sample.user, token, method: e.method, url, body, headers: sample.headers, allowlisted: !READ.has(e.method) };
           }),
         });

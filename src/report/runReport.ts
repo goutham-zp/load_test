@@ -222,12 +222,14 @@ function setupBlock(r: RunResults): string {
     [
       "Steps",
       m.mode === "users"
-        ? `${m.stepsPlanned.join(", ")} users × ${m.stepDurationSec}s, ${m.thinkTimeSec ?? "?"}s think time between pages, ${m.sessionsPerUser ?? 1} login(s) per account`
+        ? `${m.stepsPlanned.join(", ")} users × ${m.stepDurationSec}s${m.rampUpSec ? ` after a ${m.rampUpSec}s ramp-up (not measured)` : ""}, ${m.thinkTimeSec ?? "?"}s think time between pages, ${m.sessionsPerUser ?? 1} login(s) per account`
         : `${m.stepsPlanned.join(", ")} req/s × ${m.stepDurationSec}s`,
     ],
     ["Accounts / browsers", `${m.users} / ${m.browsers}`],
     ["Break rule", `${breakRuleText(r)} (min ${m.breakRules.minRequests} requests)`],
     ["Services left out", m.filters.excludeServices?.length ? m.filters.excludeServices.join(", ") : "none"],
+    ...(m.filters.dateRange ? [["Date range (--date-range)", `${m.filters.dateRange.from} to ${m.filters.dateRange.to}`] as [string, string]] : []),
+    ...(m.filters.bodySet ? [["Body fields set (--set)", Object.entries(m.filters.bodySet).map(([k, v]) => `${k}=${v}`).join(", ")] as [string, string]] : []),
     ["Load machine", `${m.runner.host} · ${m.runner.cpus} CPUs · ${m.runner.memGb} GB`],
     ["Run ended", m.endReason],
   ];

@@ -14,7 +14,20 @@
   },
   "pages": {
     "invoice-summary": "default",
-    "invoices-details": "default",
+    "invoices-details": {
+      "steps": [
+        {
+          "action": "click",
+          "selector": "button:has-text(\"DOWNLOAD CSV\")",
+          "label": "open DOWNLOAD CSV"
+        },
+        {
+          "action": "click",
+          "selector": ".dropdown-item:has-text(\"Detailed with headers\")",
+          "label": "download detailed (lineItems/download)"
+        }
+      ]
+    },
     "nonreg-invoice-summary": "default",
     "invoice-approval": "default",
     "invoice-documents": "default",

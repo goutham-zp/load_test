@@ -6,6 +6,8 @@ import { chromium } from "playwright";
 import { ensureSessions, loadSessions, saveSessions, sessionsOf } from "./browser/session.ts";
 import { loadApp, loadEnv, loadSettings, loadUsers, readJson, writeJson } from "./config/load.ts";
 import { prodLikeHosts } from "./config/safety.ts";
+import type { DateRange } from "./catalog/params.ts";
+import type { JsonPrimitive } from "./catalog/types.ts";
 import type { EnvConfig } from "./config/types.ts";
 import { discover } from "./discover/discover.ts";
 import { envMatcher } from "./gateway/routes.ts";
@@ -37,9 +39,15 @@ Commands
   run       --env <name>       Stepped load test (k6) with browsers measuring pages
             [--label text] [--only-page id | --only-endpoint text | --only-service name]
             [--exclude-service a,b]  Leave services out of the load (e.g. one that is down)
+            [--set key=value,key=value]  Replace these top-level JSON body fields in every replayed
+              request that has them (e.g. another team's date range); base variant only
+            [--date-range 2025-05-01,2025-05-31]  Set every date-range field (startDate/endDate,
+              fromDate/toDate, ...; query or body) of every replayed request, in its own format
             [--steps 5,10,25] [--step-duration 180] [--browsers 5]
             [--stop-at-first-break] [--yes]
             Users mode (instead of --steps): [--vus 100,250,500,1000] [--think-time 10]
+              [--ramp-up 60]  Bring the users in over this many seconds before each step;
+              requests started during the ramp are not counted.
               Each virtual user opens a page (all its recorded calls at once), waits the
               think time (+-50%) and opens the next. Steps are virtual users, not req/s.
             [--sessions-per-user N]  Log each account in N times; every login has its own
@@ -71,6 +79,30 @@ function positiveInt(v: string | undefined, flag: string): number | undefined {
 
 function list(v: unknown): string[] | undefined {
   return typeof v === "string" && v.length ? v.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+}
+
+/** `--set startDate=2025-01-01T00:00:00Z,pageSize=50`: numbers, true/false and null are sent as JSON, the rest as text. */
+function bodySet(v: unknown): Record<string, JsonPrimitive> | undefined {
+  const pairs = list(v);
+  if (!pairs) return undefined;
+  const out: Record<string, JsonPrimitive> = {};
+  for (const p of pairs) {
+    const i = p.indexOf("=");
+    if (i <= 0) throw new Error(`--set expects key=value pairs, got "${p}".`);
+    const raw = p.slice(i + 1);
+    out[p.slice(0, i)] = /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw === "true" ? true : raw === "false" ? false : raw === "null" ? null : raw;
+  }
+  return out;
+}
+
+/** `--date-range 2025-05-01,2025-05-31`. */
+function dateRange(v: unknown): DateRange | undefined {
+  const parts = list(v);
+  if (!parts) return undefined;
+  const ok = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(`${d}T00:00:00Z`));
+  if (parts.length !== 2 || !parts.every(ok)) throw new Error("--date-range expects two dates YYYY-MM-DD,YYYY-MM-DD, e.g. 2025-05-01,2025-05-31.");
+  if (parts[0]! > parts[1]!) throw new Error("--date-range: the first date must not be after the second.");
+  return { from: parts[0]!, to: parts[1]! };
 }
 
 function resolveRunDir(p: string, file = "results.json"): string {
@@ -114,12 +146,15 @@ async function main(): Promise<void> {
       "only-endpoint": { type: "string" },
       "only-service": { type: "string" },
       "exclude-service": { type: "string" },
+      set: { type: "string" },
+      "date-range": { type: "string" },
       steps: { type: "string" },
       "step-duration": { type: "string" },
       browsers: { type: "string" },
       "stop-at-first-break": { type: "boolean", default: false },
       vus: { type: "string" },
       "think-time": { type: "string" },
+      "ramp-up": { type: "string" },
       "sessions-per-user": { type: "string" },
       "login-concurrency": { type: "string" },
       yes: { type: "boolean", default: false },
@@ -223,12 +258,15 @@ async function main(): Promise<void> {
       const thinkTime = values["think-time"] !== undefined ? Number(values["think-time"]) : undefined;
       if (thinkTime !== undefined && (!Number.isFinite(thinkTime) || thinkTime < 0)) throw new Error("--think-time must be seconds (0 or more).");
       if (thinkTime !== undefined && !vus) throw new Error("--think-time only applies with --vus.");
+      const rampUp = values["ramp-up"] !== undefined ? Number(values["ramp-up"]) : undefined;
+      if (rampUp !== undefined && (!Number.isInteger(rampUp) || rampUp < 1)) throw new Error("--ramp-up must be whole seconds (1 or more).");
+      if (rampUp !== undefined && !vus) throw new Error("--ramp-up only applies with --vus.");
       const only = [values["only-page"], values["only-endpoint"], values["only-service"]].filter(Boolean);
       if (only.length > 1) throw new Error("Use only one of --only-page, --only-endpoint, --only-service.");
       await runLoadTest({
         env,
         label: values.label,
-        filters: { onlyPage: values["only-page"], onlyEndpoint: values["only-endpoint"], onlyService: values["only-service"], excludeServices: list(values["exclude-service"]) },
+        filters: { onlyPage: values["only-page"], onlyEndpoint: values["only-endpoint"], onlyService: values["only-service"], excludeServices: list(values["exclude-service"]), bodySet: bodySet(values.set), dateRange: dateRange(values["date-range"]) },
         steps,
         stepDurationSec: values["step-duration"] ? Number(values["step-duration"]) : undefined,
         browsers: values.browsers !== undefined ? Number(values.browsers) : undefined,
@@ -237,6 +275,7 @@ async function main(): Promise<void> {
         log,
         vus,
         thinkTimeSec: thinkTime,
+        rampUpSec: rampUp,
         sessionsPerUser: positiveInt(values["sessions-per-user"], "--sessions-per-user"),
         loginConcurrency: positiveInt(values["login-concurrency"], "--login-concurrency"),
       });

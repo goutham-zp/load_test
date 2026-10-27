@@ -16,6 +16,8 @@ export interface StepInput {
   /** Users mode: virtual users in this step and seconds each waits between pages (varied +-50%). */
   vus?: number;
   thinkSec?: number;
+  /** Users mode: seconds over which the VUs are brought in (k6 ramping-vus) before `durationSec` at full count. */
+  rampSec?: number;
   durationSec: number;
   timeoutSec: number;
   maxVUs: number;
@@ -156,7 +158,34 @@ export function failureReason(status: number, errorCode?: string): string | unde
 }
 
 /** Streams k6's gzipped JSON output and aggregates per service, endpoint and parameter variant. */
-export async function parseK6Output(outFile: string, plan: LoadPlan): Promise<K6StepResult> {
+/** Start time (ms) of the earliest request in a k6 output file, or undefined when it has none. */
+async function firstRequestStart(outFile: string): Promise<number | undefined> {
+  if (!fs.existsSync(outFile)) return undefined;
+  const gunzip = zlib.createGunzip();
+  gunzip.on("error", () => gunzip.end());
+  const rl = readline.createInterface({ input: fs.createReadStream(outFile).pipe(gunzip), crlfDelay: Infinity });
+  let min: number | undefined;
+  for await (const line of rl) {
+    if (!line.includes("\"http_req_duration\"") || !line.includes("\"Point\"")) continue;
+    try {
+      const p = JSON.parse(line) as Point;
+      const start = Date.parse(p.data.time) - p.data.value;
+      if (min === undefined || start < min) min = start;
+    } catch {
+      continue;
+    }
+  }
+  return min;
+}
+
+/**
+ * Summarises one step's k6 output. With `excludeFirstSec` (users mode with --ramp-up), requests that start in the first
+ * that many seconds after the first request, and the visits and 429s counted then, are left out: the figures then
+ * describe the full user count, not the ramp.
+ */
+export async function parseK6Output(outFile: string, plan: LoadPlan, opts: { excludeFirstSec?: number } = {}): Promise<K6StepResult> {
+  const firstStart = opts.excludeFirstSec ? await firstRequestStart(outFile) : undefined;
+  const cutoff = firstStart !== undefined ? firstStart + opts.excludeFirstSec! * 1000 : -Infinity;
   const all = new StatsBuilder();
   const services = new Map<string, StatsBuilder>();
   const endpoints = new Map<string, { service: string; b: StatsBuilder; failures: Record<string, number> }>();
@@ -184,6 +213,8 @@ export async function parseK6Output(outFile: string, plan: LoadPlan): Promise<K6
         continue;
       }
       const tags = p.data.tags ?? {};
+      const pointTime = Date.parse(p.data.time);
+      if (p.metric === "http_req_duration" ? pointTime - p.data.value < cutoff : (p.metric === "lt_visits" || p.metric === "lt_throttled") && pointTime < cutoff) continue;
       if (p.metric === "http_req_duration") {
         const status = Number(tags.status ?? 0);
         const svc = tags.svc ?? "?";

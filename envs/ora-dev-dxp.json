@@ -1,0 +1,18 @@
+{
+  "_comment": "DXP retailer portal on dev (dev-dxp.app.fintech.com), Oracle backend, for the Oracle-vs-Postgres comparison with env test (test-dxp, Postgres UAT backends). Same structure as envs/test.json: the API gateway and the DXP platform server, from the page's own config (dev-apis, dev-dxp/api) and DXP.Web .env.development. Account: LT_DXPDEV_USER_<n>_EMAIL / _PASSWORD in .env, the same login as env test-dxp-same-user.",
+  "name": "ora-dev-dxp",
+  "kind": "oracle",
+  "webBaseUrl": "https://dev-dxp.app.fintech.com",
+  "lang": "en",
+  "gatewayBaseUrls": [
+    "https://dev-apis.app.fintech.com",
+    "https://dev-dxp.app.fintech.com/api/"
+  ],
+  "auth0Domain": "https://fintech-dev.us.auth0.com",
+  "services": {
+    "fms/invoice-apis": {
+      "pods": 1
+    }
+  },
+  "userPrefix": "LT_DXPDEV_USER_"
+}
