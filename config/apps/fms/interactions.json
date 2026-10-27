@@ -55,7 +55,13 @@
     "mydistributors": "default",
     "company/retailer/relationships": "default",
     "company/distributor/retailers": "default",
-    "delivery-locations": "default",
+    "delivery-locations": {
+      "tabs": "auto",
+      "grid": {
+        "nextPages": 2,
+        "sortColumns": 3
+      }
+    },
     "retailer-locations": "default",
     "retailer-product-catalog": "default",
     "distributor-product-catalog": "default",

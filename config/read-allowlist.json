@@ -576,6 +576,12 @@
       "path": "^/fms/rpc/v3/product-catalog/catalog-exceptions/vendor-list$",
       "note": "DXP my-products/catalog-exceptions. backend: Retailer_Product_Catalog_API V3 -> CatalogExceptionsVendorListV3Query -> DataApiClient.GetCatalogExceptionsVendorListFromDataApiAsync; no writes. Same on master and master_postgres. Reviewed 2026-10-26.",
       "reviewed": true
+    },
+    {
+      "method": "POST",
+      "path": "^/fms/v1/relationships/setups/confirmed$",
+      "note": "FMS final-confirmations. backend: Relationship_API V1 RelationshipsController.GetConfirmedSetup -> GetConfirmedSetupsCommand (a read) -> SetupTrackingService.GetConfirmedSetups -> pkg_fms_setups.get_final_conf_setups_v2; no writes (procedure on pg_uat: no INSERT/UPDATE/DELETE/TRUNCATE/COMMIT/dblink/nextval, no dynamic SQL, no call to another routine). The /download variant is not allowed here. Reviewed 2026-10-27.",
+      "reviewed": true
     }
   ]
 }

@@ -65,6 +65,11 @@ export interface CatalogEndpoint {
   variants: Variant[];
   observedStatuses: Record<string, number>;
   discoveryMedianMs: number;
+  /**
+   * Every call to it got no response in discovery (the page stopped waiting, 60 s by default). Its samples are those
+   * calls, kept on purpose so the load test sends them and reports the timeouts instead of leaving the endpoint out.
+   */
+  unanswered?: boolean;
 }
 
 export interface CatalogPage {

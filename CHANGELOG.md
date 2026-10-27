@@ -10,6 +10,23 @@
   Detail pages reached by clicking a grid row are skipped. If the nav bar can't be read, discovery stops instead of
   visiting everything. `discover --all-pages` keeps the old behaviour. Re-run `discover --replace` to drop pages from
   an existing catalog. Apps without a `navigation` config (retailer/DXP) are unchanged.
+  The bar is read only after the page goes idle (on dev the menus fill in up to ~20 s after the load event: a first
+  version read 2 links and would have dropped nearly every page), twice in a row with the same result, and a bar
+  with fewer than `navigation.minLinks` (default 5) page links stops discovery.
+- **FMS `incomplete-Distributor-Submissions` is a retailer page.** `pages.json` limited it to Distributors, but its nav
+  link is in the retailer's Reports menu (FMS_UI `ReportsMenu.js`), so retailer discovery skipped a nav bar page.
+- **FMS `delivery-locations` no longer runs the search step.** On the distributor page it waited the full 30 s twice
+  (typed search, then clear) and made no API call, on Oracle dev and on Postgres alike (26 and 27 Oct), which only
+  inflated the page timings. Tabs, sorts and paging still run.
+- **Endpoints that never answered in discovery are loaded, so the load test shows their timeouts.** A call slower than
+  the page waits (60 s) got status 0 and, with no successful sample, was left out of the load plan: on UAT the
+  staged-invoices approval count (about 1,700 distributors, a file-share scan per distributor) was the slowest call
+  and the one missing from the report. When no call to an endpoint got any response, those calls are now its samples
+  (`unanswered: true` in the catalog, listed at the end of discovery). An endpoint with any 4xx/5xx or any answered
+  call is unchanged: a refused request is never replayed. Smoke reports them separately and does not fail on them
+  (nor on a page that only waited for them).
+- **`LT_CHROMIUM_ARGS`** adds Chromium flags (space separated) to every browser the tool starts (login, discovery,
+  smoke, run), for a machine whose network or DNS differs from the laptop's.
 - **FMS `pages.json` gains the nav bar view pages it was missing:** final-confirmations, invoice-documents inbox,
   complete and archive, managepocontacts, my-products, nonreg-invoice-details and fms-products/catalog-exceptions.
   Form pages in the nav bar (add-new-user, company/edit, banking, change-password, ...) are still not visited.

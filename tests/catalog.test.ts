@@ -154,4 +154,32 @@ describe("buildCatalog", () => {
     expect(c.failures).toEqual([{ key: "GET /fms/v3/invoices/{num}", status: 500, count: 1 }]);
     expect(c.pages[0]!.endpoints).toEqual(["GET /fms/v3/invoices/{num}"]);
   });
+
+  describe("calls that never got a response", () => {
+    const build = (recorded: RecordedRequest[]) =>
+      buildCatalog({
+        env: "t", app: "retailer", tokenScope: "user", webBaseUrl: "https://web", gatewayBaseUrls: ["https://gw"], users: ["user1"], recorded,
+        pages: [{ id: "home", reached: true, urls: [], interactions: ["load"], endpoints: [] }], blocked: [], matcher: createRouteMatcher([]),
+        maxSamplesPerUserPerEndpoint: 5, maxVariantsPerEndpoint: 10, searchTerms: [],
+      }).endpoints[0]!;
+
+    it("keeps them as the samples, flagged, when no call to the endpoint was answered", () => {
+      const e = build([rec({ status: 0, durationMs: 55_000 })]);
+      expect(e.unanswered).toBe(true);
+      expect(e.samples).toHaveLength(1);
+      expect(e.observedStatuses).toEqual({ "0": 1 });
+    });
+    it("does not flag an endpoint that answered at least once, and ignores the unanswered call", () => {
+      const e = build([rec({ status: 0 }), rec({ url: "https://gw/fms/v3/invoices/2" })]);
+      expect(e.unanswered).toBeUndefined();
+      expect(e.samples.map((x) => x.url)).toEqual(["https://gw/fms/v3/invoices/2"]);
+    });
+    it("never replays a refused request: a 5xx or 4xx next to a missing response keeps it out", () => {
+      for (const status of [500, 401, 400]) {
+        const e = build([rec({ status: 0 }), rec({ url: "https://gw/fms/v3/invoices/2", status })]);
+        expect(e.unanswered).toBeUndefined();
+        expect(e.samples).toHaveLength(0);
+      }
+    });
+  });
 });

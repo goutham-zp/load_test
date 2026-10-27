@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { chromiumArgs } from "../browser/launch.ts";
 import path from "node:path";
 import { chromium } from "playwright";
 import { newGuardedContext } from "../browser/context.ts";
@@ -20,6 +21,8 @@ export interface SmokeResult {
   passed: boolean;
   runDir: string;
   endpointFailures: { key: string; service: string; n: number; ok: number; errors: number; clientErrors: number; throttled: number }[];
+  /** Endpoints that never answered in discovery: they are loaded to show the timeouts, so a failure here is expected and does not fail the smoke. */
+  expectedUnanswered: { key: string; service: string; n: number; ok: number; errors: number }[];
   /** calls: the page's failed API calls (status 0 = no response or cancelled by the app). */
   pageFailures: { page: string; url: string; problem: string; calls?: { method: string; url: string; status: number }[] }[];
   blockedWrites: { method: string; url: string }[];
@@ -40,7 +43,7 @@ export async function smoke(env: EnvConfig, log: (m: string) => void): Promise<S
   const total = plan.services.reduce((a, s) => a + s.slots.length, 0);
   log(`Smoke: ${total} API requests across ${plan.services.length} services, ${catalog.pages.filter((p) => p.reached).length} pages`);
 
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({ headless: true, args: chromiumArgs() });
   const pageFailures: SmokeResult["pageFailures"] = [];
   const blockedWrites: SmokeResult["blockedWrites"] = [];
   let parsed;
@@ -106,15 +109,22 @@ export async function smoke(env: EnvConfig, log: (m: string) => void): Promise<S
     await browser.close();
   }
 
-  const endpointFailures = [...parsed.endpoints]
+  const unansweredKeys = new Set(catalog.endpoints.filter((e) => e.unanswered).map((e) => e.key));
+  const notOk = [...parsed.endpoints]
     .filter(([, v]) => v.stats.ok < v.stats.n)
     .map(([key, v]) => ({ key, service: v.service, n: v.stats.n, ok: v.stats.ok, errors: v.stats.errors, clientErrors: v.stats.clientErrors, throttled: v.stats.throttled }));
+  const endpointFailures = notOk.filter((f) => !unansweredKeys.has(f.key));
+  const expectedUnanswered = notOk.filter((f) => unansweredKeys.has(f.key));
+  // A page that waited on one of those endpoints fails for that reason alone: it is expected too.
+  const isUnanswered = unansweredMatcher(catalog.endpoints.filter((e) => e.unanswered).map((e) => e.key));
+  const unexpectedPageFailures = pageFailures.filter((f) => !(isUnanswered(f.problem) || (f.calls?.length && f.calls.every((c) => isUnanswered(c.url)))));
   const sent = [...parsed.endpoints.values()].reduce((a, v) => a + v.stats.n, 0);
   if (sent < total) log(`Only ${sent} of ${total} smoke requests completed.`);
   const result: SmokeResult = {
-    passed: endpointFailures.length === 0 && pageFailures.length === 0 && parsed.refused === 0 && sent === total,
+    passed: endpointFailures.length === 0 && unexpectedPageFailures.length === 0 && parsed.refused === 0 && sent === total,
     runDir,
     endpointFailures,
+    expectedUnanswered,
     pageFailures,
     blockedWrites,
     refused: parsed.refused,
@@ -122,6 +132,12 @@ export async function smoke(env: EnvConfig, log: (m: string) => void): Promise<S
   writeJson(path.join(runDir, "smoke.json"), result);
   fs.writeFileSync(path.join(runDir, "smoke.html"), renderSmoke(env, result, total, sent));
   return result;
+}
+
+/** Matches text or a URL that names one of these endpoint keys ("GET [svc] /api/v1/x/{num}/y"), ids matched by {...}. */
+function unansweredMatcher(keys: string[]): (text: string) => boolean {
+  const res = keys.map((k) => new RegExp(k.replace(/^\S+ (\[[^\]]+\] )?/, "").replace(/[.*+?^$()|[\]\\]/g, "\\$&").replace(/\{[^}]+\}/g, "[^/?\\s]+")));
+  return (text) => res.some((r) => r.test(text));
 }
 
 function renderSmoke(env: EnvConfig, r: SmokeResult, total: number, sent: number): string {
@@ -133,6 +149,7 @@ function renderSmoke(env: EnvConfig, r: SmokeResult, total: number, sent: number
 <p class="sub">${r.passed ? "✓ Passed" : "✕ Failed"} · ${sent}/${total} API requests completed · ${r.blockedWrites.length} writes blocked in the browser</p>
 <h2>Endpoints with non-2xx responses</h2>
 ${ep ? `<div class="table-wrap"><table><thead><tr><th>Endpoint</th><th>Service</th><th class="num">OK</th><th class="num">5xx/timeout</th><th class="num">4xx</th><th class="num">429</th></tr></thead><tbody>${ep}</tbody></table></div>` : `<p>None.</p>`}
+${r.expectedUnanswered.length ? `<h2>Never answered in discovery (loaded on purpose, not a smoke failure)</h2><ul>${r.expectedUnanswered.map((f) => `<li class="mono">${esc(f.key)}: ${f.ok}/${f.n} answered</li>`).join("")}</ul>` : ""}
 <h2>Pages with problems</h2>
 ${pg ? `<div class="table-wrap"><table><thead><tr><th>Page</th><th>Problem</th><th>URL</th></tr></thead><tbody>${pg}</tbody></table></div>` : `<p>None.</p>`}`;
   return page(`Smoke — ${env.name}`, body);

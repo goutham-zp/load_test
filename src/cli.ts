@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { chromiumArgs } from "./browser/launch.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -191,7 +192,7 @@ async function main(): Promise<void> {
       const sessions = loadSessions(env.name);
       for (const u of users) for (const sess of sessionsOf(sessions, u.key)) delete sessions[sess.key];
       saveSessions(env.name, sessions);
-      const browser = await chromium.launch({ headless: !values.headed });
+      const browser = await chromium.launch({ headless: !values.headed, args: chromiumArgs() });
       try {
         const maxCompanies = values["max-companies"] ? Number(values["max-companies"]) : loadSettings().discovery.maxCompaniesPerUser;
         await ensureSessions(browser, env, app, envGuard(env, app), users, 0, log, {
@@ -222,7 +223,9 @@ async function main(): Promise<void> {
       const withSamples = catalog.endpoints.filter((e) => e.samples.length);
       const variants = withSamples.reduce((a, e) => a + e.variants.length, 0);
       log(`Catalog: ${file}`);
-      log(`  endpoints: ${catalog.endpoints.length} (${withSamples.length} with successful samples, ${variants} variants)`);
+      const unanswered = catalog.endpoints.filter((e) => e.unanswered);
+      log(`  endpoints: ${catalog.endpoints.length} (${withSamples.length - unanswered.length} with successful samples, ${unanswered.length} that never answered, ${variants} variants)`);
+      for (const e of unanswered) log(`    never answered (loaded anyway, expect timeouts): ${e.key}`);
       log(`  pages reached: ${catalog.pages.filter((p) => p.reached).length}/${catalog.pages.length}`);
       for (const p of catalog.pages.filter((x) => !x.reached)) log(`    not reached: ${p.id} — ${p.note ?? ""}`);
       const unmatched = withSamples.filter((e) => !e.matchedRoute);

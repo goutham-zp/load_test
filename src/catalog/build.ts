@@ -89,11 +89,14 @@ export function buildCatalog(input: BuildCatalogInput): Catalog {
     }
 
     const ok = records.filter((r) => isSuccess(r.status));
+    // Calls that never got a response (slower than the page waited) are still worth loading: the load test then shows
+    // the timeouts. Only when no call to the endpoint got any response, so a refused (4xx/5xx) request is never replayed.
+    const unanswered = ok.length === 0 && records.length > 0 && records.every((r) => r.status === 0);
     const samples: Sample[] = [];
     const seen = new Set<string>();
     // Samples are capped per token: per user, or per user and company when each company has its own token.
     const perToken = new Map<string, number>();
-    for (const r of ok) {
+    for (const r of unanswered ? records : ok) {
       const token = tokenKeyFor(input.tokenScope, r.user, r.companyId);
       const id = `${token}|${r.url}|${r.body ?? ""}`;
       if (seen.has(id)) continue;
@@ -123,7 +126,8 @@ export function buildCatalog(input: BuildCatalogInput): Catalog {
       dimensions,
       variants,
       observedStatuses,
-      discoveryMedianMs: Math.round(median(ok.map((r) => r.durationMs))),
+      discoveryMedianMs: Math.round(median((unanswered ? records : ok).map((r) => r.durationMs))),
+      ...(unanswered ? { unanswered: true } : {}),
     });
   }
   endpoints.sort((a, b) => a.key.localeCompare(b.key));
