@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **FMS discovery visits only the pages each account's nav bar links to.** It opened every page in `pages.json` by its
+  URL, so it recorded pages real users can't reach: `/payment-preferences` is a route anyone can type, but its menu
+  entry shows only to a retailer admin with AP payments on, and the distributor catalogs still got its calls (the dev
+  team confirmed users don't navigate there). Discovery now opens the landing page per account, opens every nav
+  dropdown (`navigation` in `config/apps/fms/app.json`), and visits only pages linked there plus the landing page.
+  Detail pages reached by clicking a grid row are skipped. If the nav bar can't be read, discovery stops instead of
+  visiting everything. `discover --all-pages` keeps the old behaviour. Re-run `discover --replace` to drop pages from
+  an existing catalog. Apps without a `navigation` config (retailer/DXP) are unchanged.
+- **FMS `pages.json` gains the nav bar view pages it was missing:** final-confirmations, invoice-documents inbox,
+  complete and archive, managepocontacts, my-products, nonreg-invoice-details and fms-products/catalog-exceptions.
+  Form pages in the nav bar (add-new-user, company/edit, banking, change-password, ...) are still not visited.
 - **401 and 403 under load now count as errors.** They were "client errors", kept out of the error rate: on UAT FMS
   (26 Oct 2026) a run got 401 on 78-95% of calls and said "errors 0.0%". Every replayed sample succeeded at discovery,
   so an auth rejection during load is a failure. Other 4xx stay client errors (variants can legitimately return them).

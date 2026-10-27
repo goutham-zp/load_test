@@ -3,6 +3,7 @@ import path from "node:path";
 import { chromium } from "playwright";
 import { newGuardedContext, type BlockedEvent } from "../browser/context.ts";
 import { clickFirstRow, resolveInteractions, runInteractions } from "../browser/interactions.ts";
+import { pageInNavBar, readNavPaths } from "../browser/nav.ts";
 import { ensureSessions, sessionsOf } from "../browser/session.ts";
 import { RequestTracker } from "../browser/tracker.ts";
 import { measureStep, visitPage, type VisitStep } from "../browser/visit.ts";
@@ -29,6 +30,8 @@ export interface DiscoverOptions {
   headed?: boolean;
   /** Start the catalog fresh even when --users / --pages limit the run (default: merge into the previous one). */
   replace?: boolean;
+  /** Visit every page in pages.json, not only the ones the account's nav bar links to (apps with a "navigation" config). */
+  allPages?: boolean;
   log: (msg: string) => void;
 }
 
@@ -105,6 +108,10 @@ export async function discover(opts: DiscoverOptions): Promise<DiscoverResult> {
   const blockedAgg = new Map<string, BlockedRequest>();
   const allSteps: (VisitStep & { user: string; companyId: string })[] = [];
   const covered = new Set<string>();
+  // With a nav bar configured, a page is visited only for accounts whose nav bar links to it (what real users reach).
+  const navFilter = app.navigation && !opts.allPages ? app.navigation : undefined;
+  const attempted = new Set<string>();
+  if (!navFilter && app.navigation) log("--all-pages: visiting every page in pages.json, whether or not the nav bar links to it.");
 
   try {
     const sessions = await ensureSessions(browser, env, app, guard, users, 600, log, { maxCompanies });
@@ -118,8 +125,24 @@ export async function discover(opts: DiscoverOptions): Promise<DiscoverResult> {
 
       for (const companyId of companies) {
         log(`${user.key} / company ${companyId}${session.companyName ? ` (${session.companyName})` : ""}${session.companyType ? ` [${session.companyType}]` : ""}`);
+        let nav: Set<string> | undefined;
+        if (navFilter) {
+          const navPage = await context.newPage();
+          try {
+            await navPage.goto(pageUrl(app, env, companyId, navFilter.landingPath), { waitUntil: "load", timeout: settings.discovery.navigationTimeoutMs });
+            nav = await readNavPaths(navPage, navFilter, 60_000);
+          } catch (e) {
+            throw new Error(`${user.key} / ${companyId}: could not read the nav bar (${(e as Error).message.split("\n")[0]}). Fix the login or the "navigation" selectors in config/apps/${app.name}/app.json, or run with --all-pages to skip the nav bar filter.`);
+          } finally {
+            await navPage.close();
+          }
+          if (nav.size === 0) throw new Error(`${user.key} / ${companyId}: the nav bar has no page links. Run with --all-pages to skip the nav bar filter.`);
+          log(`  nav bar: ${nav.size} page links`);
+        }
         for (const p of pages) {
           if (p.companyTypes && session.companyType && !p.companyTypes.includes(session.companyType)) continue;
+          if (nav && !pageInNavBar(p, nav)) continue;
+          attempted.add(p.id);
           const blockedBefore = blocked.length;
           covered.add(coverKey(user.key, companyId, p.id));
           const info = pageInfo.get(p.id)!;
@@ -219,7 +242,8 @@ export async function discover(opts: DiscoverOptions): Promise<DiscoverResult> {
     covered: [...covered],
     recorded,
     steps: allSteps.map(({ calls, ...s }) => ({ ...s, calls: calls.length })),
-    pages: [...pageInfo.values()],
+    // With the nav bar filter, pages no account's nav bar links to are not part of the catalog.
+    pages: [...pageInfo.values()].filter((p) => !navFilter || attempted.has(p.id)),
     blocked: [...blockedAgg.values()].sort((a, b) => b.count - a.count),
     untrackedHosts: [...untracked.values()].sort((a, b) => b.count - a.count),
   };

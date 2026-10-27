@@ -36,6 +36,12 @@
     ".fa-spin",
     ".loading"
   ],
+  "navigation": {
+    "landingPath": "home",
+    "navSelector": "nav, .navbar",
+    "toggleSelector": ".dropdown-toggle, [aria-haspopup=true]",
+    "itemSelector": ".dropdown-menu.show a[href]"
+  },
   "selectors": {
     "tab": "[role=\"tab\"], .nav-tabs .nav-link, .k-tabstrip-items .k-item",
     "sortableHeader": "th.sortable-header, .k-grid-header th .k-link",

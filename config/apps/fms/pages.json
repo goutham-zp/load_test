@@ -308,6 +308,38 @@
       "companyTypes": [
         "Retailer"
       ]
+    },
+    {
+      "id": "final-confirmations",
+      "path": "final-confirmations"
+    },
+    {
+      "id": "invoice-documents/inbox",
+      "path": "invoice-documents/inbox"
+    },
+    {
+      "id": "invoice-documents/complete",
+      "path": "invoice-documents/complete"
+    },
+    {
+      "id": "invoice-documents/archive",
+      "path": "invoice-documents/archive"
+    },
+    {
+      "id": "managepocontacts",
+      "path": "managepocontacts"
+    },
+    {
+      "id": "my-products",
+      "path": "my-products"
+    },
+    {
+      "id": "nonreg-invoice-details",
+      "path": "nonreg-invoice-details"
+    },
+    {
+      "id": "fms-products/catalog-exceptions",
+      "path": "fms-products/catalog-exceptions"
     }
   ]
 }

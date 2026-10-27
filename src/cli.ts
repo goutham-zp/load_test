@@ -35,6 +35,8 @@ Commands
             [--users user1,user2] [--pages id1,id2] [--max-companies N] [--headed]
             With --users or --pages, the run is merged into the previous catalog
             (add --replace to start fresh). The previous catalog is always backed up.
+            Apps with a nav bar config (FMS_UI) visit only the pages each account's nav bar links to;
+            [--all-pages] visits every page in pages.json instead.
   smoke     --env <name>       Every endpoint once + every page once; must pass before run
   run       --env <name>       Stepped load test (k6) with browsers measuring pages
             [--label text] [--only-page id | --only-endpoint text | --only-service name]
@@ -141,6 +143,7 @@ async function main(): Promise<void> {
       "max-companies": { type: "string" },
       headed: { type: "boolean", default: false },
       replace: { type: "boolean", default: false },
+      "all-pages": { type: "boolean", default: false },
       label: { type: "string" },
       "only-page": { type: "string" },
       "only-endpoint": { type: "string" },
@@ -211,6 +214,7 @@ async function main(): Promise<void> {
         maxCompanies: values["max-companies"] ? Number(values["max-companies"]) : undefined,
         headed: values.headed,
         replace: values.replace,
+        allPages: values["all-pages"],
         log,
       });
       if (backupDir) log(`Previous catalog backed up to ${backupDir}`);

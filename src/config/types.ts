@@ -119,6 +119,19 @@ export interface AppProfile {
   selectors: AppSelectors;
   /** Non-GET calls the app makes to log in or refresh its token: let through the guard, never recorded or replayed. */
   authCalls?: { method: string; path: string }[];
+  /** When set, discovery visits only the pages the account's nav bar links to (see discover --all-pages). */
+  navigation?: NavigationConfig;
+}
+
+export interface NavigationConfig {
+  /** Page path that shows the nav bar (the landing page). */
+  landingPath: string;
+  /** The nav bar element. */
+  navSelector: string;
+  /** Inside it: the buttons that open a dropdown. */
+  toggleSelector: string;
+  /** On the page: the links of an open dropdown menu. */
+  itemSelector: string;
 }
 
 export type RateLimitKey = "token" | "ip" | "shared";
